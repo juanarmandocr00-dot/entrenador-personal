@@ -1,0 +1,78 @@
+/* Atardecer sobre montaña: azul noche, naranja de salida, verde para lo logrado. Una columna tipo app de teléfono. */
+:root{
+  --bg:#070E1F; --bg2:#0B1A35; --card:rgba(16,28,52,.74); --line:rgba(110,150,210,.2); --line2:rgba(120,165,230,.36);
+  --fg:#F5F7FB; --mut:#A3B3CE; --acc:#FF6A00; --acc2:#FF9A1F; --ok:#62CF3F; --warn:#FFD84A; --bad:#FF6B6B; --badbg:#3A0B10; --swim:#00A1FB; --ink:#080B16;
+  --font:'Manrope',system-ui,-apple-system,'Segoe UI',sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:auto}
+body{margin:0;font-family:var(--font);font-size:15px;line-height:1.45;color:var(--fg);
+  background:radial-gradient(900px 420px at 80% 0%,rgba(255,106,0,.18),transparent 60%),linear-gradient(180deg,var(--bg2),var(--bg) 55%,#050A15) fixed;background-color:var(--bg);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 110px}
+.wrap{max-width:520px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1,h2,h3,p{margin:0}
+h1{font-size:22px;font-weight:800;letter-spacing:-.01em}
+h2{font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--mut)}
+h3{font-size:16px;font-weight:700}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.bar{height:4px;border-radius:2px;background:linear-gradient(90deg,var(--acc),var(--ok),var(--swim))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.card.hi{border-color:var(--line2)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.sp{justify-content:space-between}
+.mut{color:var(--mut)}
+.small{font-size:13px}
+.big{font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:1px solid var(--line2);background:transparent;border-radius:12px;min-height:44px;padding:0 16px;font-weight:600}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--acc2);outline-offset:2px}
+button.p{background:linear-gradient(135deg,var(--acc2),#FF5A00);border-color:transparent;color:var(--ink);font-weight:800}
+button.g{background:rgba(98,207,63,.14);border-color:var(--ok);color:var(--ok)}
+button:disabled{opacity:.5;cursor:default}
+.chip{min-height:44px;padding:0 14px;border-radius:999px}
+.chip[aria-pressed=true]{background:var(--acc);border-color:var(--acc);color:var(--ink);font-weight:800}
+.chip.libre[aria-pressed=true]{background:var(--ok);border-color:var(--ok)}
+.chip.no[aria-pressed=true]{background:var(--bad);border-color:var(--bad)}
+input[type=number],input[type=text],input[type=date],select,textarea{width:100%;min-height:44px;background:rgba(5,10,21,.6);border:1px solid var(--line2);border-radius:12px;padding:10px 12px}
+textarea{min-height:88px;resize:vertical}
+label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mut);font-weight:600}
+.pill{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;border:1px solid var(--line2);color:var(--mut);white-space:nowrap}
+.pill.ok{color:var(--ok);border-color:var(--ok)}
+.pill.bad{color:var(--bad);border-color:var(--bad)}
+.pill.acc{color:var(--acc2);border-color:var(--acc2)}
+details{border-top:1px solid var(--line);padding:10px 0}
+details:first-of-type{border-top:0}
+summary{cursor:pointer;list-style:none;display:flex;gap:10px;align-items:center;min-height:44px}
+summary::-webkit-details-marker{display:none}
+summary .d{width:46px;font-weight:800}
+summary .t{flex:1;min-width:0}
+.niv{display:grid;gap:8px;margin-top:8px}
+.niv div{border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.alert{background:var(--badbg);border:1px solid var(--bad);color:#FFD0D0;border-radius:12px;padding:12px}
+.note{background:rgba(255,216,74,.1);border:1px solid var(--warn);color:var(--warn);border-radius:12px;padding:12px;font-size:13px}
+.ok-box{background:rgba(98,207,63,.1);border:1px solid var(--ok);border-radius:12px;padding:12px}
+.moods{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.moods button{padding:0 2px;font-size:12px;min-height:56px;line-height:1.15}
+.moods button[aria-pressed=true]{background:var(--acc);border-color:var(--acc);color:var(--ink)}
+.chat{display:flex;flex-direction:column;gap:10px}
+.msg{padding:10px 12px;border-radius:14px;max-width:92%;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.u{align-self:flex-end;background:rgba(255,106,0,.18);border:1px solid rgba(255,154,31,.5)}
+.msg.a{align-self:flex-start;background:rgba(5,10,21,.55);border:1px solid var(--line)}
+nav{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;justify-content:center;padding:8px max(12px,env(safe-area-inset-right,0px)) calc(8px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));background:linear-gradient(180deg,transparent,rgba(5,10,21,.92) 40%)}
+nav .in{width:100%;max-width:520px;display:grid;grid-template-columns:repeat(5,1fr);gap:4px;background:rgba(16,28,52,.92);border:1px solid var(--line2);border-radius:20px;padding:6px}
+nav button{border:0;flex-direction:column;display:flex;align-items:center;justify-content:center;gap:2px;font-size:11px;padding:0;min-height:52px;border-radius:14px;color:var(--mut)}
+nav button[aria-current=page]{background:rgba(255,106,0,.18);color:var(--acc2)}
+nav svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.hide{display:none!important}
+.chartbox{overflow-x:auto}
+@media (prefers-reduced-motion:no-preference){.card{transition:border-color .2s}}
+
+/* ---- login ---- */
+.auth{max-width:420px;margin:8vh auto 0;display:flex;flex-direction:column;gap:16px}
+.auth .logo{width:72px;height:72px;border-radius:16px}
+.auth form{display:flex;flex-direction:column;gap:12px}
+.auth .err{color:var(--bad);font-size:13px;min-height:18px}
+.auth img.qr{width:200px;height:200px;background:#fff;border-radius:12px;padding:8px;align-self:center}
+.auth code{word-break:break-all;font-size:13px;background:rgba(5,10,21,.6);padding:8px 10px;border-radius:10px;display:block}
+button.link{color:var(--acc2);background:none;border:0;min-height:44px;text-align:left;padding:0;font-weight:600}
