@@ -115,3 +115,12 @@ button.link:hover:not(:disabled){background:none}
 
 /* resultados de búsqueda de gimnasio */
 .res{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:2px;width:100%;min-height:56px;padding:10px 14px}
+
+/* ejercicios ilustrados */
+.ej{display:flex;flex-direction:column;gap:8px;padding:14px 0;border-top:1px solid var(--line)}
+.ej-t{font-weight:700}
+.ej-row{display:grid;grid-template-columns:repeat(var(--n,2),1fr);gap:8px}
+.ej-cell{margin:0;display:flex;flex-direction:column;gap:4px;background:var(--surf);border-radius:6px;padding:6px}
+.ej-fig{width:100%;height:auto;display:block}
+.ej-cell figcaption{font-size:12px;color:var(--mut)}
+.ejs{display:flex;flex-direction:column;gap:2px;margin-top:6px}

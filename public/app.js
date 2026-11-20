@@ -77,6 +77,18 @@ function contexto(){
    +'MOLESTIAS RECIENTES: '+JSON.stringify(mol.map(function(m){return {f:m.fecha,zona:m.zona,intensidad:m.intensidad,nivel:m.nivel}}));
 }
 
+function idsEjercicios(d){
+  if(!window.Ejercicios||!d)return [];
+  var ids=(d.ejercicios||[]).filter(function(i){return Ejercicios.existe(i)});
+  if(!ids.length&&d.tipo==='gym'){var n=d.niveles||{};ids=Ejercicios.detectar([d.titulo,d.detalle,n.basica,n.media,n.alta].join(' '))}
+  return ids.filter(function(x,i,a){return a.indexOf(x)===i}).slice(0,8);
+}
+function bloqueEjercicios(d){
+  var ids=idsEjercicios(d);if(!ids.length)return null;
+  var b=h('div',{class:'ejs'},h('h3',{text:'Cómo se hacen'}));
+  ids.forEach(function(i){var f=Ejercicios.figura(i);if(f)b.appendChild(f)});
+  return b;
+}
 var DISC=[['correr','Correr'],['gym','Gym'],['natacion','Natación'],['bici','Bici']];
 function discList(){return DISC.concat((perfil().extras||[]).map(function(n){return ['x:'+n,n]}))}
 function planSel(){var q=perfil().plan||{};var disc=(q.disc||[]).filter(function(x){return discList().some(function(d){return d[0]===x})});return {disc:disc.length?disc:['correr','gym'],modo:q.modo==='manual'?'manual':'auto',dias:q.dias||{}}}
@@ -89,7 +101,7 @@ function planificar(semanaIso,reajuste){
   var inicio=parse(semanaIso), fechas=DIAS.map(function(_,i){var f=addDays(inicio,i);return dayName(f)+' '+iso(f)}).join(', ');
   var desde=reajuste?iso(new Date()):semanaIso;
   var prompt=contexto()+'\n\nTAREA: '+(reajuste?'Reajusta lo que queda de la semana desde '+desde+' inclusive, considerando las sesiones ya hechas o no realizadas.':'Genera la rutina de la semana de entrenamiento que empieza el '+dayName(inicio)+' '+semanaIso+' y termina 6 días después. Armando elige el día de inicio, no tiene que ser lunes.')
-   +'\nDías de la semana: '+fechas+'.\n'+textoPlan()+'\nDevuelve SOLO JSON con esta forma: {"resumen":"2 frases","dias":[{"dia":"Lun","fecha":"AAAA-MM-DD","tipo":"correr|gym|natacion|bici|otra|descanso","titulo":"corto","detalle":"qué hacer, con ritmos o ejercicios","min":0,"niveles":{"basica":"...","media":"...","alta":"..."}}]}. Incluye un objeto por cada día desde '+desde+'. Los niveles solo en sesiones de gym. Usa "descanso" para días sin entrenar.';
+   +'\nDías de la semana: '+fechas+'.\n'+textoPlan()+(window.Ejercicios?'\nEJERCICIOS CON ILUSTRACIÓN (ids): '+Ejercicios.lista.map(function(x){return x.id+' ('+x.nombre+')'}).join(', ')+'. En cada sesión de gym agrega "ejercicios":["id"] con 3 a 6 ids de esa lista, acordes a los aparatos disponibles y al grupo muscular del día; los ejercicios que no estén en la lista van solo en el texto.':'')+'\nDevuelve SOLO JSON con esta forma: {"resumen":"2 frases","dias":[{"dia":"Lun","fecha":"AAAA-MM-DD","tipo":"correr|gym|natacion|bici|otra|descanso","titulo":"corto","detalle":"qué hacer, con ritmos o ejercicios","min":0,"niveles":{"basica":"...","media":"...","alta":"..."}}]}. Incluye un objeto por cada día desde '+desde+'. Los niveles solo en sesiones de gym. Usa "descanso" para días sin entrenar.';
   sample.json(prompt,{modelTier:'default',cache:false}).then(function(r){
     var pf=perfil(), okTipo={correr:1,gym:1,natacion:1,bici:1,otra:1,descanso:1}, rango={};
     DIAS.forEach(function(_,i){rango[iso(addDays(inicio,i))]=1});
@@ -99,6 +111,7 @@ function planificar(semanaIso,reajuste){
       var o={dia:dn,fecha:d.fecha,tipo:t,titulo:cut(d.titulo,80),detalle:cut(d.detalle,600),min:min};
       if(pf.no.indexOf(dn)>=0||cap===0){o.tipo='descanso';o.titulo='No entrenas';o.detalle='Marcaste este día como no disponible.';o.min=0}
       else if(cap!=null&&min>cap){o.min=cap;o.detalle+=' (Ajustado a tus '+cap+' min disponibles.)'}
+      if(o.tipo==='gym'&&window.Ejercicios&&Array.isArray(d.ejercicios))o.ejercicios=d.ejercicios.filter(function(i){return typeof i==='string'&&Ejercicios.existe(i)}).filter(function(x,i,a){return a.indexOf(x)===i}).slice(0,8);
       if(d.niveles&&o.tipo==='gym')o.niveles={basica:cut(d.niveles.basica,400),media:cut(d.niveles.media,400),alta:cut(d.niveles.alta,400)};
       return o});
     if(!nuevo.length)throw new Error('vacío');
@@ -134,6 +147,7 @@ function vistaHoy(){
   var hoyDia=sem&&sem.dias.find(function(d){return d.fecha===hoyIso});
   if(hoyDia){
     var c=h('div',{class:'card hi'},h('div',{class:'row sp'},h('h2',{text:'Hoy · '+hoyDia.dia+' '+fmt(hoyDia.fecha)}),estadoPill(hoyDia)),h('h3',{text:hoyDia.titulo}),h('p',{class:'mut',text:hoyDia.detalle}),hoyDia.min?h('div',{class:'small mut',text:hoyDia.min+' min'}):null);
+    var ebh=bloqueEjercicios(hoyDia);if(ebh)c.appendChild(h('details',null,h('summary',null,h('span',{class:'t',text:'Ver cómo se hacen los ejercicios'})),ebh));
     if(hoyDia.tipo!=='descanso'&&hoyDia.estado==='pendiente'){
       c.appendChild(h('div',{class:'row'},h('button',{class:'p',onclick:function(){marcar(hoyDia.fecha,'hecha')}},'Hecha'),h('button',{onclick:function(){razon=!razon;render()}},'Hoy no pude')));
       if(razon){c.appendChild(h('div',{class:'row'},['Trabajo','Cansancio','Dolor','Clima','Otra'].map(function(m){return h('button',{class:'chip',onclick:function(){razon=false;marcar(hoyDia.fecha,'no_realizada',m);if(m==='Dolor'){tab='check';render()}}},m)})))}
@@ -165,7 +179,7 @@ function selectorSemana(){
   if(pl.modo==='manual')discList().filter(function(x){return pl.disc.indexOf(x[0])>=0}).forEach(function(x){
     box.appendChild(grupo('Días de '+x[1].toLowerCase(),'',pl.dias[x[0]]||[],function(d){var dd=Object.assign({},pl.dias);dd[x[0]]=toggle(dd[x[0]]||[],d);guardarPerfil({plan:Object.assign({},pl,{dias:dd})});render()}))});
   var ext=perfil().extras||[], nx=h('input',{type:'text',id:'dx',maxlength:'30',placeholder:'Otra disciplina (ej. yoga, remo)'});
-  function agregarDisc(){var v=nx.value.trim();if(!v||ext.length>=6||ext.some(function(e){return e.toLowerCase()===v.toLowerCase()})||DISC.some(function(d){return d[1].toLowerCase()===v.toLowerCase()}))return;drafts.dx='';guardarPerfil({extras:ext.concat([v]),plan:Object.assign({},pl,{disc:pl.disc.concat(['x:'+v])})});render()}
+  function agregarDisc(){var v=nx.value.trim();if(!v||ext.length>=6||ext.some(function(e){return e.toLowerCase()===v.toLowerCase()})||DISC.some(function(d){return d[1].toLowerCase()===v.toLowerCase()}))return;nx.value='';drafts.dx='';guardarPerfil({extras:ext.concat([v]),plan:Object.assign({},pl,{disc:pl.disc.concat(['x:'+v])})});render()}
   nx.addEventListener('keydown',function(ev){if(ev.key==='Enter'){ev.preventDefault();agregarDisc()}});
   box.appendChild(h('div',{class:'row'},nx,h('button',{onclick:agregarDisc},'Agregar disciplina')));
   if(ext.length)box.appendChild(h('div',{class:'row'},ext.map(function(n){return h('button',{class:'link','aria-label':'Quitar '+n,onclick:function(){var k='x:'+n,dd=Object.assign({},pl.dias);delete dd[k];guardarPerfil({extras:ext.filter(function(e){return e!==n}),plan:Object.assign({},pl,{disc:pl.disc.filter(function(x){return x!==k}).length?pl.disc.filter(function(x){return x!==k}):['correr'],dias:dd})});render()}},'Quitar '+n)})));
@@ -181,6 +195,7 @@ function vistaSemana(sem){
       var det=h('details',null,h('summary',null,h('span',{class:'d',text:d.dia}),h('span',{class:'t'},h('div',{style:'font-weight:600',text:d.titulo}),h('div',{class:'small mut',text:fmt(d.fecha)+(d.min?' · '+d.min+' min':'')+(d.fecha===p.descanso||d.dia===p.descanso?' · sobreesfuerzo':'')})),estadoPill(d)));
       det.appendChild(h('p',{class:'small',text:d.detalle}));
       if(d.niveles){det.appendChild(h('div',{class:'niv'},[['basica','Básica'],['media','Media'],['alta','Alta']].map(function(n){return d.niveles[n[0]]?h('div',null,h('b',{text:n[1]+': '}),d.niveles[n[0]]):null})))}
+      var eb=bloqueEjercicios(d);if(eb)det.appendChild(eb);
       c.appendChild(det);
     });
   } else c.appendChild(h('p',{class:'mut small',text:'Todavía no hay rutina para esta semana.'}));
@@ -342,7 +357,7 @@ function vistaPerfil(){
   var geq=h('textarea',{id:'ge',maxlength:'1500',placeholder:'Ej. mancuernas de 5 a 30 kg, la prensa está descompuesta'},gy.equipo||'');
   geq.addEventListener('change',function(){guardarGym({equipo:geq.value.trim()})});
   var gca=h('input',{type:'text',id:'ga',maxlength:'60',placeholder:'Aparato nuevo o diferente'});
-  function agregarAparato(){var v=gca.value.trim();if(!v||gAp.length>=40||gAp.some(function(x){return x.toLowerCase()===v.toLowerCase()}))return;drafts.ga='';guardarGym({aparatos:gAp.concat([v]),fuente:gy.fuente||'manual'});render()}
+  function agregarAparato(){var v=gca.value.trim();if(!v||gAp.length>=40||gAp.some(function(x){return x.toLowerCase()===v.toLowerCase()}))return;gca.value='';drafts.ga='';guardarGym({aparatos:gAp.concat([v]),fuente:gy.fuente||'manual'});render()}
   gca.addEventListener('keydown',function(ev){if(ev.key==='Enter'){ev.preventDefault();agregarAparato()}});
   var gc=h('div',{class:'card'},h('h2',{text:'Mi gimnasio'}),
     h('p',{class:'small mut',text:'Busca tu gimnasio y cargo sus aparatos. Si no lo encuentro, uso aparatos básicos.'}),
@@ -371,7 +386,7 @@ function vistaPerfil(){
   out.push(h('div',{class:'card'},h('h2',{text:'Metas y carreras'}),
     metas.length?metas.map(function(m,i){return h('div',{class:'row sp'},h('span',null,h('b',{text:m.nombre}),' · '+fmt(m.fecha)),h('button',{class:'chip','aria-label':'Quitar '+m.nombre,onclick:function(){guardarPerfil({metas:metas.filter(function(_,j){return j!==i})});render()}},'Quitar'))}):h('p',{class:'mut small',text:'Sin metas.'}),
     h('label',{for:'mn'},'Nueva meta',nom),h('label',{for:'mf'},'Fecha',fec),
-    h('button',{onclick:function(){if(!nom.value.trim()||!fec.value)return;guardarPerfil({metas:metas.concat([{nombre:nom.value.trim(),fecha:fec.value}])});drafts.mn='';drafts.mf='';render()}},'Agregar meta')));
+    h('button',{onclick:function(){if(!nom.value.trim()||!fec.value)return;guardarPerfil({metas:metas.concat([{nombre:nom.value.trim(),fecha:fec.value}])});nom.value='';fec.value='';drafts.mn='';drafts.mf='';render()}},'Agregar meta')));
   if(acct)out.push(h('div',{class:'card'},h('h2',{text:'Cuenta'}),h('p',{class:'small mut',text:acct.email}),
     h('div',{class:'row'},h('button',{onclick:function(){acct.signOut()}},'Cerrar sesión'),h('button',{onclick:function(){acct.signOutAll()}},'Cerrar sesión en todos los dispositivos'))));
   out.push(h('div',{class:'card'},h('h2',{text:'Mis datos'}),h('p',{class:'small mut',text:'Descarga una copia de tu perfil, semanas, pesos y molestias.'}),
