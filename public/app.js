@@ -78,8 +78,9 @@ function contexto(){
 }
 
 var DISC=[['correr','Correr'],['gym','Gym'],['natacion','Natación'],['bici','Bici']];
-function planSel(){var q=perfil().plan||{};var disc=(q.disc||[]).filter(function(x){return DISC.some(function(d){return d[0]===x})});return {disc:disc.length?disc:['correr','gym'],modo:q.modo==='manual'?'manual':'auto',dias:q.dias||{}}}
-function textoPlan(){var pl=planSel(),s='DISCIPLINAS ELEGIDAS PARA ESTA SEMANA: '+pl.disc.join(', ')+'.';
+function discList(){return DISC.concat((perfil().extras||[]).map(function(n){return ['x:'+n,n]}))}
+function planSel(){var q=perfil().plan||{};var disc=(q.disc||[]).filter(function(x){return discList().some(function(d){return d[0]===x})});return {disc:disc.length?disc:['correr','gym'],modo:q.modo==='manual'?'manual':'auto',dias:q.dias||{}}}
+function textoPlan(){var pl=planSel(),s='DISCIPLINAS ELEGIDAS PARA ESTA SEMANA: '+pl.disc.map(function(k){return k.indexOf('x:')===0?k.slice(2)+' (disciplina propia, tipo "otra"; pon su nombre al inicio del título)':k}).join(', ')+'.';
   if(pl.modo==='manual'){var o={};pl.disc.forEach(function(k){o[k]=pl.dias[k]||[]});s+=' Armando eligió los días de cada disciplina: '+JSON.stringify(o)+'. Respétalos y distribuye tú las que queden sin días.'}
   else s+=' Distribuye los días tú.';return s}
 function planificar(semanaIso,reajuste){
@@ -88,9 +89,9 @@ function planificar(semanaIso,reajuste){
   var inicio=parse(semanaIso), fechas=DIAS.map(function(_,i){var f=addDays(inicio,i);return dayName(f)+' '+iso(f)}).join(', ');
   var desde=reajuste?iso(new Date()):semanaIso;
   var prompt=contexto()+'\n\nTAREA: '+(reajuste?'Reajusta lo que queda de la semana desde '+desde+' inclusive, considerando las sesiones ya hechas o no realizadas.':'Genera la rutina de la semana de entrenamiento que empieza el '+dayName(inicio)+' '+semanaIso+' y termina 6 días después. Armando elige el día de inicio, no tiene que ser lunes.')
-   +'\nDías de la semana: '+fechas+'.\n'+textoPlan()+'\nDevuelve SOLO JSON con esta forma: {"resumen":"2 frases","dias":[{"dia":"Lun","fecha":"AAAA-MM-DD","tipo":"correr|gym|natacion|bici|descanso","titulo":"corto","detalle":"qué hacer, con ritmos o ejercicios","min":0,"niveles":{"basica":"...","media":"...","alta":"..."}}]}. Incluye un objeto por cada día desde '+desde+'. Los niveles solo en sesiones de gym. Usa "descanso" para días sin entrenar.';
+   +'\nDías de la semana: '+fechas+'.\n'+textoPlan()+'\nDevuelve SOLO JSON con esta forma: {"resumen":"2 frases","dias":[{"dia":"Lun","fecha":"AAAA-MM-DD","tipo":"correr|gym|natacion|bici|otra|descanso","titulo":"corto","detalle":"qué hacer, con ritmos o ejercicios","min":0,"niveles":{"basica":"...","media":"...","alta":"..."}}]}. Incluye un objeto por cada día desde '+desde+'. Los niveles solo en sesiones de gym. Usa "descanso" para días sin entrenar.';
   sample.json(prompt,{modelTier:'default',cache:false}).then(function(r){
-    var pf=perfil(), okTipo={correr:1,gym:1,natacion:1,bici:1,descanso:1}, rango={};
+    var pf=perfil(), okTipo={correr:1,gym:1,natacion:1,bici:1,otra:1,descanso:1}, rango={};
     DIAS.forEach(function(_,i){rango[iso(addDays(inicio,i))]=1});
     var cut=function(v,n){return String(v==null?'':v).slice(0,n)};
     var nuevo=(r&&Array.isArray(r.dias)?r.dias:[]).filter(function(d){return d&&typeof d.fecha==='string'&&rango[d.fecha]&&d.fecha>=desde}).map(function(d){
@@ -159,10 +160,15 @@ function marcar(fecha,estado,motivo){
 function selectorSemana(){
   var pl=planSel(), box=h('div',{style:'display:flex;flex-direction:column;gap:10px'});
   box.appendChild(h('div',{class:'small mut',text:'¿Qué entrenas en la semana que vas a generar?'}));
-  box.appendChild(h('div',{class:'row'},DISC.map(function(x){return h('button',{class:'chip','aria-pressed':String(pl.disc.indexOf(x[0])>=0),onclick:function(){var d=toggle(pl.disc,x[0]);if(!d.length)return;guardarPerfil({plan:Object.assign({},pl,{disc:d})});render()}},x[1])})));
+  box.appendChild(h('div',{class:'row'},discList().map(function(x){return h('button',{class:'chip','aria-pressed':String(pl.disc.indexOf(x[0])>=0),onclick:function(){var d=toggle(pl.disc,x[0]);if(!d.length)return;guardarPerfil({plan:Object.assign({},pl,{disc:d})});render()}},x[1])})));
   box.appendChild(h('div',{class:'row'},[['auto','Días automáticos'],['manual','Elegir los días']].map(function(m){return h('button',{class:'chip','aria-pressed':String(pl.modo===m[0]),onclick:function(){guardarPerfil({plan:Object.assign({},pl,{modo:m[0]})});render()}},m[1])})));
-  if(pl.modo==='manual')DISC.filter(function(x){return pl.disc.indexOf(x[0])>=0}).forEach(function(x){
+  if(pl.modo==='manual')discList().filter(function(x){return pl.disc.indexOf(x[0])>=0}).forEach(function(x){
     box.appendChild(grupo('Días de '+x[1].toLowerCase(),'',pl.dias[x[0]]||[],function(d){var dd=Object.assign({},pl.dias);dd[x[0]]=toggle(dd[x[0]]||[],d);guardarPerfil({plan:Object.assign({},pl,{dias:dd})});render()}))});
+  var ext=perfil().extras||[], nx=h('input',{type:'text',id:'dx',maxlength:'30',placeholder:'Otra disciplina (ej. yoga, remo)'});
+  function agregarDisc(){var v=nx.value.trim();if(!v||ext.length>=6||ext.some(function(e){return e.toLowerCase()===v.toLowerCase()})||DISC.some(function(d){return d[1].toLowerCase()===v.toLowerCase()}))return;drafts.dx='';guardarPerfil({extras:ext.concat([v]),plan:Object.assign({},pl,{disc:pl.disc.concat(['x:'+v])})});render()}
+  nx.addEventListener('keydown',function(ev){if(ev.key==='Enter'){ev.preventDefault();agregarDisc()}});
+  box.appendChild(h('div',{class:'row'},nx,h('button',{onclick:agregarDisc},'Agregar disciplina')));
+  if(ext.length)box.appendChild(h('div',{class:'row'},ext.map(function(n){return h('button',{class:'link','aria-label':'Quitar '+n,onclick:function(){var k='x:'+n,dd=Object.assign({},pl.dias);delete dd[k];guardarPerfil({extras:ext.filter(function(e){return e!==n}),plan:Object.assign({},pl,{disc:pl.disc.filter(function(x){return x!==k}).length?pl.disc.filter(function(x){return x!==k}):['correr'],dias:dd})});render()}},'Quitar '+n)})));
   return box;
 }
 function vistaSemana(sem){
