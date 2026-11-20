@@ -279,6 +279,18 @@ function vistaPerfil(){
     var i=h('input',{type:'number',id:'m'+d,min:'0',max:'300',step:'5',inputmode:'numeric',placeholder:'60',value:p.minutos[d]!=null?p.minutos[d]:''});
     i.addEventListener('change',function(){var m=Object.assign({},p.minutos);if(i.value==='')delete m[d];else m[d]=Math.max(0,Math.min(300,parseInt(i.value,10)||0));guardarPerfil({minutos:m})});
     return h('label',{for:'m'+d},d,i)}))));
+  var gy=p.gym||{}, gBrazo=gy.brazo||[], gPierna=gy.pierna||[];
+  function guardarGym(patch){guardarPerfil({gym:Object.assign({},p.gym||{},patch)})}
+  var gnom=h('input',{type:'text',id:'gn',maxlength:'80',placeholder:'Ej. Bestia´s Gym',value:gy.nombre||''});
+  gnom.addEventListener('change',function(){guardarGym({nombre:gnom.value.trim()})});
+  var geq=h('textarea',{id:'ge',maxlength:'1500',placeholder:'Ej. Prensa de pierna, jalón al pecho, mancuernas de 5 a 30 kg, barra olímpica...'},gy.equipo||'');
+  geq.addEventListener('change',function(){guardarGym({equipo:geq.value.trim()})});
+  out.push(h('div',{class:'card'},h('h2',{text:'Mi gimnasio'}),
+    h('p',{class:'small mut',text:'Con esto armo tus rutinas de gym: qué días entrenas brazo y pierna, y con qué cuentas.'}),
+    h('label',{for:'gn'},'Nombre',gnom),
+    grupo('Días de brazo','',gBrazo,function(d){guardarGym({brazo:toggle(gBrazo,d)});render()}),
+    grupo('Días de pierna','',gPierna,function(d){guardarGym({pierna:toggle(gPierna,d)});render()}),
+    h('label',{for:'ge'},'Máquinas, pesos y equipo disponible',geq)));
   var por=h('textarea',{id:'porque',placeholder:'La razón por la que haces esto'},p.porque||'');
   por.addEventListener('change',function(){guardarPerfil({porque:por.value.trim()})});
   out.push(h('div',{class:'card'},h('h2',{text:'Mi porqué'}),por,h('p',{class:'small mut',text:'Te lo recuerdo los días de poca energía.'})));
