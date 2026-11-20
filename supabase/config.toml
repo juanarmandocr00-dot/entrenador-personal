@@ -1,2 +1,3 @@
 [functions.coach]
-verify_jwt = true
+# La función valida el token ella misma (getUser + aal2); se mantiene apagado igual que en el panel.
+verify_jwt = false

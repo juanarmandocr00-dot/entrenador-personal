@@ -61,7 +61,13 @@ Deno.serve(async (req) => {
   // 2. Entrada acotada.
   if (Number(req.headers.get("content-length") ?? "0") > 100_000) return reply(413, { error: "size" }, origin);
   let body: { messages?: unknown; json?: unknown; action?: unknown; q?: unknown };
-  try { body = await req.json(); } catch { return reply(400, { error: "json" }, origin); }
+  try {
+    const raw = await req.text();
+    if (raw.length > 100_000) return reply(413, { error: "size" }, origin);
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return reply(400, { error: "json" }, origin);
+    body = parsed;
+  } catch { return reply(400, { error: "json" }, origin); }
   if (body.action === "gym_search") {
     // Búsqueda de gimnasios en OpenStreetMap (Nominatim). Solo el dueño llega aquí; máx. 1 consulta por segundo.
     const q = typeof body.q === "string" ? body.q.trim().slice(0, 100) : "";

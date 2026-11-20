@@ -42,7 +42,7 @@ function guardar(coleccion,id,data){
   if(db){return db.doc(coleccion+'/'+id).set(data).catch(function(){msg='No se pudo guardar. Revisa tu conexión.';render()})}
   return Promise.resolve();
 }
-function guardarPerfil(patch){var p=Object.assign({},perfil(),patch);S.perfil=p;if(db)db.doc('perfil/yo').set(p).catch(function(){});}
+function guardarPerfil(patch){var antes=S.perfil,p=Object.assign({},perfil(),patch);S.perfil=p;if(db)db.doc('perfil/yo').set(p).catch(function(){S.perfil=antes;msg='No se pudo guardar el cambio. Revisa tu conexión e inténtalo otra vez.';render()});}
 function semanaActual(){return S.semanas[iso(monday(new Date()))]}
 function proximaMeta(){
   var hoy=iso(new Date());
@@ -95,6 +95,7 @@ function planSel(){var q=perfil().plan||{};var disc=(q.disc||[]).filter(function
 function textoPlan(){var pl=planSel(),s='DISCIPLINAS ELEGIDAS PARA ESTA SEMANA: '+pl.disc.map(function(k){return k.indexOf('x:')===0?k.slice(2)+' (disciplina propia, tipo "otra"; pon su nombre al inicio del título)':k}).join(', ')+'.';
   if(pl.modo==='manual'){var o={};pl.disc.forEach(function(k){o[k]=pl.dias[k]||[]});s+=' Armando eligió los días de cada disciplina: '+JSON.stringify(o)+'. Respétalos y distribuye tú las que queden sin días.'}
   else s+=' Distribuye los días tú.';return s}
+function errorCoach(e,que){var c=e&&e.code;if(c==='not_granted')return 'Tu sesión no tiene permiso para usar el coach. Cierra sesión y vuelve a entrar.';if(c==='rate_limited')return 'Llegaste al límite de consultas de hoy. Mañana se reinicia.';if(c==='offline')return 'No hay conexión con el coach. Revisa tu internet.';if(c==='timeout')return 'El coach tardó demasiado. Inténtalo otra vez.';if(c==='bad_json')return 'La respuesta del coach llegó incompleta. Inténtalo otra vez.';return que}
 function planificar(semanaIso,reajuste){
   if(!sample){msg='El coach no está disponible en esta vista.';render();return}
   busy=true;msg='Pensando tu semana. Puede tardar un minuto.';render();
@@ -122,15 +123,15 @@ function planificar(semanaIso,reajuste){
     var dias=DIAS.map(function(_,i){var f=iso(addDays(inicio,i));return mapa[f]}).filter(Boolean);
     busy=false;msg='';
     return guardar('semanas',semanaIso,{inicio:semanaIso,dias:dias,resumen:r.resumen||'',generada:Date.now()});
-  }).catch(function(e){busy=false;msg=(e&&e.code==='not_granted')?'Necesitas permitir que la página consulte a Claude para generar la semana.':'No pude generar la semana. Inténtalo otra vez.';render()});
+  }).catch(function(e){busy=false;msg=errorCoach(e,'No pude generar la semana. Inténtalo otra vez.');render()});
 }
 
 function enviarChat(texto){
   if(!sample||!texto.trim())return;
   chat.push({role:'user',content:texto});busy=true;render();
-  var turnos=chat.map(function(t,i){return i===0?{role:'user',content:contexto()+'\n\nPREGUNTA: '+t.content}:t});
+  var rec=chat.slice(-9);var turnos=rec.map(function(t,i){return i===0?{role:'user',content:contexto()+'\n\nPREGUNTA: '+t.content}:t});
   sample(turnos,{modelTier:'default',cache:false}).then(function(r){chat.push({role:'assistant',content:r.text});busy=false;render()})
-   .catch(function(e){chat.pop();busy=false;msg=(e&&e.code==='not_granted')?'Necesitas permitir que la página consulte a Claude.':'No pude responder. Inténtalo otra vez.';render()});
+   .catch(function(e){chat.pop();busy=false;msg=errorCoach(e,'No pude responder. Inténtalo otra vez.');render()});
 }
 
 /* ---------- vistas ---------- */

@@ -43,6 +43,10 @@
     auth: { flowType: 'pkce', persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
   });
 
+  /* Cerrar sesión solo en este dispositivo (el botón 'todos los dispositivos' usa scope global). */
+  var recuperando = false;
+  function cerrarLocal() { recuperando = false; return sb.auth.signOut({ scope: 'local' }); }
+
   /* ---------- inactividad ---------- */
   var idleMs = (Number(C.IDLE_MINUTES) || 0) * 60000, lastWrite = 0, timer = null;
   function tocar() {
@@ -56,8 +60,8 @@
   }
   function vigilar() {
     if (!idleMs) return;
-    ['click', 'keydown', 'touchstart', 'visibilitychange'].forEach(function (ev) { document.addEventListener(ev, function () { if (ev === 'visibilitychange' && document.hidden) return; if (inactivo()) { sb.auth.signOut(); } else tocar(); }, { passive: true }); });
-    clearInterval(timer); timer = setInterval(function () { if (inactivo()) sb.auth.signOut(); }, 30000);
+    ['click', 'keydown', 'touchstart', 'visibilitychange'].forEach(function (ev) { document.addEventListener(ev, function () { if (ev === 'visibilitychange' && document.hidden) return; if (inactivo()) { cerrarLocal(); } else tocar(); }, { passive: true }); });
+    clearInterval(timer); timer = setInterval(function () { if (inactivo()) cerrarLocal(); }, 30000);
   }
 
   /* ---------- pantallas ---------- */
@@ -109,15 +113,15 @@
     pantalla(form);
   }
   function campoCodigo() { return h('input', { type: 'text', id: 'cod', inputmode: 'numeric', pattern: '[0-9]{6}', maxlength: '6', autocomplete: 'one-time-code', required: true, placeholder: '123456' }); }
-  function pantallaMfa(factorId) {
+  function pantallaMfa(factorId, despues) {
     var cod = campoCodigo(), err = h('div', { class: 'err', role: 'alert' }), btn = h('button', { class: 'p', type: 'submit', text: 'Verificar' });
     var form = h('form', null, h('p', { class: 'mut', text: 'Escribe el código de 6 dígitos de tu app de autenticación.' }), h('label', { for: 'cod' }, 'Código', cod), err, btn,
-      h('button', { class: 'link', type: 'button', text: 'Cancelar', onclick: function () { sb.auth.signOut(); } }));
+      h('button', { class: 'link', type: 'button', text: 'Cancelar', onclick: function () { cerrarLocal(); } }));
     form.addEventListener('submit', function (ev) {
       ev.preventDefault(); btn.disabled = true; err.textContent = '';
       sb.auth.mfa.challengeAndVerify({ factorId: factorId, code: cod.value.trim() }).then(function (r) {
         if (r.error) { err.textContent = 'Código incorrecto o vencido.'; btn.disabled = false; cod.value = ''; return; }
-        route();
+        if (despues) despues(); else route();
       }).catch(function () { err.textContent = 'No se pudo verificar.'; btn.disabled = false; });
     });
     pantalla(form);
@@ -140,7 +144,7 @@
         h('code', { text: f.totp.secret }),
         h('p', { class: 'mut small', text: '2. Escribe el código de 6 dígitos que muestra la app.' }),
         h('label', { for: 'cod' }, 'Código', cod), err, btn,
-        h('button', { class: 'link', type: 'button', text: 'Cancelar', onclick: function () { sb.auth.signOut(); } }));
+        h('button', { class: 'link', type: 'button', text: 'Cancelar', onclick: function () { cerrarLocal(); } }));
       form.addEventListener('submit', function (ev) {
         ev.preventDefault(); btn.disabled = true; err.textContent = '';
         sb.auth.mfa.challengeAndVerify({ factorId: f.id, code: cod.value.trim() }).then(function (x) {
@@ -151,12 +155,28 @@
       pantalla(form);
     }).catch(function () { pantalla(h('p', { class: 'err', text: 'No se pudo preparar la verificación. Recarga la página.' })); });
   }
+  /* Recuperar contraseña: el enlace del correo da una sesión de nivel 1; como la base exige MFA, primero se pide el código. */
   function pantallaNuevaClave() {
+    recuperando = true;
+    sb.auth.mfa.getAuthenticatorAssuranceLevel().then(function (a) {
+      var d = a.data || {};
+      if (d.currentLevel === 'aal1' && d.nextLevel === 'aal2') {
+        return sb.auth.mfa.listFactors().then(function (f) {
+          var ok = ((f.data && f.data.totp) || []).filter(function (x) { return x.status === 'verified'; });
+          if (ok.length) return pantallaMfa(ok[0].id, formularioClave);
+          formularioClave();
+        });
+      }
+      formularioClave();
+    }).catch(formularioClave);
+  }
+  function formularioClave() {
     var a = h('input', { type: 'password', id: 'n1', autocomplete: 'new-password', required: true, minlength: '12', maxlength: '200' });
     var b = h('input', { type: 'password', id: 'n2', autocomplete: 'new-password', required: true, minlength: '12', maxlength: '200' });
     var err = h('div', { class: 'err', role: 'alert' }), btn = h('button', { class: 'p', type: 'submit', text: 'Guardar contraseña' });
     var form = h('form', null, h('p', { class: 'mut', text: 'Elige una contraseña nueva de al menos 12 caracteres.' }),
-      h('label', { for: 'n1' }, 'Contraseña nueva', a), h('label', { for: 'n2' }, 'Repítela', b), err, btn);
+      h('label', { for: 'n1' }, 'Contraseña nueva', a), h('label', { for: 'n2' }, 'Repítela', b), err, btn,
+      h('button', { class: 'link', type: 'button', text: 'Cancelar', onclick: function () { cerrarLocal(); } }));
     form.addEventListener('submit', function (ev) {
       ev.preventDefault();
       if (a.value.length < 12) { err.textContent = 'Usa al menos 12 caracteres.'; return; }
@@ -165,8 +185,8 @@
       sb.auth.updateUser({ password: a.value }).then(function (r) {
         a.value = b.value = '';
         if (r.error) { err.textContent = 'No se pudo cambiar la contraseña. Pide otro enlace.'; btn.disabled = false; return; }
-        route();
-      });
+        recuperando = false; route();
+      }).catch(function () { err.textContent = 'No se pudo conectar. Inténtalo otra vez.'; btn.disabled = false; });
     });
     pantalla(form);
   }
@@ -183,9 +203,16 @@
     }
     function register(fire) { var s = { fire: fire }; subs.push(s); fire(); return function () { subs = subs.filter(function (x) { return x !== s; }); }; }
     function load() {
-      return sb.from('docs').select('path,data').then(function (r) {
-        if (r.error) throw r.error;
-        rows = new Map((r.data || []).map(function (x) { return [x.path, x.data]; })); notify();
+      var todas = [];
+      function pagina(desde) {
+        return sb.from('docs').select('path,data').order('path').range(desde, desde + 999).then(function (r) {
+          if (r.error) throw r.error;
+          var d = r.data || []; todas = todas.concat(d);
+          if (d.length === 1000 && todas.length < 5000) return pagina(desde + 1000);
+        });
+      }
+      return pagina(0).then(function () {
+        rows = new Map(todas.map(function (x) { return [x.path, x.data]; })); notify();
       });
     }
     return {
@@ -207,16 +234,22 @@
   }
 
   /* ---------- coach (función en el servidor, la llave de Anthropic nunca llega aquí) ---------- */
+  /* fetch con tiempo límite; distingue "sin internet" de "tardó demasiado". */
+  function conTiempo(url, opts, ms) {
+    var ac = new AbortController(), vencio = false, t = setTimeout(function () { vencio = true; ac.abort(); }, ms);
+    opts.signal = ac.signal;
+    return fetch(url, opts).catch(function () { throw { code: vencio ? 'timeout' : 'offline' }; }).then(function (r) { clearTimeout(t); return r; }, function (e) { clearTimeout(t); throw e; });
+  }
   function makeSample() {
     function llamar(input, json) {
       var msgs = typeof input === 'string' ? [{ role: 'user', content: input }] : input;
       return sb.auth.getSession().then(function (r) {
         var s = r.data && r.data.session; if (!s) throw { code: 'not_granted' };
-        return fetch(C.SUPABASE_URL + '/functions/v1/coach', {
+        return conTiempo(C.SUPABASE_URL + '/functions/v1/coach', {
           method: 'POST', credentials: 'omit', referrerPolicy: 'no-referrer',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + s.access_token, 'apikey': C.SUPABASE_ANON_KEY },
           body: JSON.stringify({ messages: msgs, json: !!json })
-        });
+        }, 130000);
       }).then(function (res) {
         if (res.status === 429) throw { code: 'rate_limited' };
         if (res.status === 401 || res.status === 403) throw { code: 'not_granted' };
@@ -269,7 +302,7 @@
       shell.classList.remove('hide'); navwrap.classList.remove('hide');
       window.EntrenadorApp.start({
         db: db, sample: makeSample(), gymSearch: makeGymSearch(), descargas: descargas,
-        account: { email: session.user.email || '', signOut: function () { return sb.auth.signOut(); }, signOutAll: function () { return sb.auth.signOut({ scope: 'global' }); } }
+        account: { email: session.user.email || '', signOut: function () { return cerrarLocal(); }, signOutAll: function () { return sb.auth.signOut({ scope: 'global' }); } }
       });
       window.EntrenadorApp.status('Guardado en línea');
     }).catch(function () { pantalla(h('p', { class: 'err', text: 'No se pudieron cargar tus datos. Recarga la página.' })); })
@@ -277,9 +310,11 @@
   }
   function route() {
     sb.auth.getSession().then(function (r) {
+      if (recuperando) return;
       var s = r.data && r.data.session;
       if (!s) { salirDeApp(); return pantallaLogin(); }
       return sb.auth.mfa.getAuthenticatorAssuranceLevel().then(function (a) {
+        if (recuperando) return;
         var lvl = a.data && a.data.currentLevel;
         if (lvl === 'aal2') return entrar(s);
         salirDeApp();
@@ -295,6 +330,7 @@
   sb.auth.onAuthStateChange(function (event) {
     if (event === 'PASSWORD_RECOVERY') { setTimeout(pantallaNuevaClave, 0); return; }
     if (event === 'SIGNED_OUT') {
+      recuperando = false;
       try { localStorage.removeItem(LAST_KEY); } catch (e) {}
       setTimeout(route, 0);
     }
@@ -302,6 +338,6 @@
 
   /* arranque: si pasó demasiado tiempo sin usar la app, se cierra la sesión antes de mostrar nada */
   vigilar();
-  if (inactivo()) { sb.auth.signOut().then(function () { route(); }); } else { route(); }
+  if (inactivo()) { cerrarLocal().then(function () { route(); }); } else { route(); }
   window.addEventListener('pageshow', function (e) { if (e.persisted) route(); });
 })();
