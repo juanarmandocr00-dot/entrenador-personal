@@ -21,17 +21,16 @@ const SYSTEM = [
 const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
 function reply(status: number, body: unknown, origin: string) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": origin && origin === ORIGIN ? ORIGIN : "",
-      "Vary": "Origin",
-      "Access-Control-Allow-Headers": "authorization, apikey, content-type",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Cache-Control": "no-store",
-    },
-  });
+  const headers: Record<string, string> = {
+    "Vary": "Origin",
+    "Access-Control-Allow-Headers": "authorization, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Cache-Control": "no-store",
+  };
+  if (origin && origin === ORIGIN) headers["Access-Control-Allow-Origin"] = ORIGIN;
+  if (body === null || status === 204) return new Response(null, { status, headers });
+  headers["Content-Type"] = "application/json";
+  return new Response(JSON.stringify(body), { status, headers });
 }
 
 function aalOf(jwt: string): string {
