@@ -69,7 +69,7 @@
     var btn = h('button', { class: 'p', type: 'submit', text: 'Entrar' });
     var form = h('form', null,
       h('label', { for: 'em' }, 'Correo', email), h('label', { for: 'pw' }, 'Contraseña', pass), err, btn,
-      h('button', { class: 'link', type: 'button', text: 'Olvidé mi contraseña', onclick: function () { recuperar(email.value.trim(), err); } }));
+      h('button', { class: 'link', type: 'button', text: 'Olvidé mi contraseña', onclick: function () { pantallaRecuperar(email.value.trim()); } }));
     form.addEventListener('submit', function (ev) {
       ev.preventDefault();
       if (Date.now() < bloqueoHasta) { err.textContent = 'Espera ' + Math.ceil((bloqueoHasta - Date.now()) / 1000) + ' segundos para intentar otra vez.'; return; }
@@ -85,11 +85,28 @@
     });
     pantalla(form);
   }
-  function recuperar(correo, err) {
-    if (!correo) { err.textContent = 'Escribe tu correo arriba y vuelve a pulsar.'; return; }
-    sb.auth.resetPasswordForEmail(correo, { redirectTo: location.origin + location.pathname }).then(function () {
-      err.textContent = 'Si el correo existe, te enviamos un enlace para cambiar la contraseña.';
-    }).catch(function () { err.textContent = 'No se pudo enviar. Inténtalo más tarde.'; });
+  var ultimoEnvio = 0;
+  function pantallaRecuperar(correoInicial) {
+    var email = h('input', { type: 'email', id: 'rem', autocomplete: 'username', required: true, maxlength: '254', placeholder: 'tu correo', value: correoInicial || '' });
+    var err = h('div', { class: 'err', role: 'alert' });
+    var ok = h('p', { class: 'mut', role: 'status' });
+    var btn = h('button', { class: 'p', type: 'submit', text: 'Enviar enlace' });
+    var form = h('form', null,
+      h('p', { class: 'mut', text: 'Confirma tu correo y te enviaremos un enlace para cambiar la contraseña.' }),
+      h('label', { for: 'rem' }, 'Correo', email), err, ok, btn,
+      h('button', { class: 'link', type: 'button', text: 'Volver a iniciar sesión', onclick: function () { pantallaLogin(); } }));
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var espera = 60000 - (Date.now() - ultimoEnvio);
+      if (espera > 0) { err.textContent = 'Espera ' + Math.ceil(espera / 1000) + ' segundos para pedir otro enlace.'; return; }
+      var correo = email.value.trim(); if (!correo) return;
+      btn.disabled = true; err.textContent = ''; ok.textContent = '';
+      ultimoEnvio = Date.now();
+      sb.auth.resetPasswordForEmail(correo, { redirectTo: location.origin + location.pathname }).then(function () {
+        ok.textContent = 'Si el correo existe, te enviamos un enlace. Revisa tu bandeja (y el spam).'; btn.disabled = false;
+      }).catch(function () { err.textContent = 'No se pudo enviar. Inténtalo más tarde.'; btn.disabled = false; });
+    });
+    pantalla(form);
   }
   function campoCodigo() { return h('input', { type: 'text', id: 'cod', inputmode: 'numeric', pattern: '[0-9]{6}', maxlength: '6', autocomplete: 'one-time-code', required: true, placeholder: '123456' }); }
   function pantallaMfa(factorId) {
