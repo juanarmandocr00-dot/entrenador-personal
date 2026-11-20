@@ -14,7 +14,7 @@ var MESES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','di
 var fmt=function(s){var d=parse(s);return d.getDate()+' '+MESES[d.getMonth()]};
 
 var S={perfil:{},semanas:{},pesos:{},molestias:{}};
-var db=null, sample=null, tab='hoy', busy=false, msg='', chat=[], draftMood=null, razon=false, lastTriage=null, drafts={}, descargas=null, acct=null;
+var db=null, sample=null, tab='hoy', busy=false, msg='', chat=[], draftMood=null, razon=false, lastTriage=null, drafts={}, descargas=null, acct=null, gymSearch=null;
 var ICON={
   hoy:'<path d="M4 11l8-7 8 7v9a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/>',
   check:'<path d="M5 12l4 4 10-10"/><rect x="3" y="3" width="18" height="18" rx="4"/>',
@@ -56,7 +56,8 @@ var REGLAS=[
  'Eres el entrenador personal de Armando (30 años, Nuevo León, México). Habla en español claro y directo.',
  'No eres médico. Ante dolor o molestia activa, baja la carga y recomienda ver a un médico deportivo o fisioterapeuta; si hay dolor fuerte, hinchazón o no puede apoyar, dile que no entrene y que acuda a un médico.',
  'Armando es supinador y corre con Adidas Duramo SL2. Ritmo de Zona 2: 7:30 por km. Quiere bajar 8 kg o más (empezó el 14 de octubre de 2026).',
- 'Gimnasio: Bestia´s Gym. Rutinas con tres niveles: Básica, Media y Alta.',
+ 'Gimnasio: el del campo gym del perfil. Usa solo los aparatos de gym.aparatos; si esa lista no existe o está vacía, arma la rutina con aparatos básicos (peso corporal, mancuernas, barra, banco, bandas). Rutinas con tres niveles: Básica, Media y Alta.',
+ 'Programa solo las disciplinas que Armando eligió para la semana (correr, gym, natación, bici); el resto de los días es descanso. Si eligió los días de una disciplina, respétalos; si no, distribúyelas tú con buen espaciado. Con varias disciplinas cuida el volumen total: natación y bici en Zona 2 salvo que el plan pida otra cosa.',
  'Nunca dupliques la carga por una sesión perdida. Prioridad si hay que elegir: salida larga, luego pierna, luego brazo.',
  'La pierna solo en nivel Básica o Media si cae a menos de 48 horas de la salida larga.',
  'Dos sesiones perdidas seguidas reducen la semana. "No realizada" no es lo mismo que "Descanso".',
@@ -76,15 +77,20 @@ function contexto(){
    +'MOLESTIAS RECIENTES: '+JSON.stringify(mol.map(function(m){return {f:m.fecha,zona:m.zona,intensidad:m.intensidad,nivel:m.nivel}}));
 }
 
+var DISC=[['correr','Correr'],['gym','Gym'],['natacion','Natación'],['bici','Bici']];
+function planSel(){var q=perfil().plan||{};var disc=(q.disc||[]).filter(function(x){return DISC.some(function(d){return d[0]===x})});return {disc:disc.length?disc:['correr','gym'],modo:q.modo==='manual'?'manual':'auto',dias:q.dias||{}}}
+function textoPlan(){var pl=planSel(),s='DISCIPLINAS ELEGIDAS PARA ESTA SEMANA: '+pl.disc.join(', ')+'.';
+  if(pl.modo==='manual'){var o={};pl.disc.forEach(function(k){o[k]=pl.dias[k]||[]});s+=' Armando eligió los días de cada disciplina: '+JSON.stringify(o)+'. Respétalos y distribuye tú las que queden sin días.'}
+  else s+=' Distribuye los días tú.';return s}
 function planificar(semanaIso,reajuste){
   if(!sample){msg='El coach no está disponible en esta vista.';render();return}
   busy=true;msg='Pensando tu semana. Puede tardar un minuto.';render();
   var inicio=parse(semanaIso), fechas=DIAS.map(function(_,i){var f=addDays(inicio,i);return dayName(f)+' '+iso(f)}).join(', ');
   var desde=reajuste?iso(new Date()):semanaIso;
   var prompt=contexto()+'\n\nTAREA: '+(reajuste?'Reajusta lo que queda de la semana desde '+desde+' inclusive, considerando las sesiones ya hechas o no realizadas.':'Genera la rutina de la semana de entrenamiento que empieza el '+dayName(inicio)+' '+semanaIso+' y termina 6 días después. Armando elige el día de inicio, no tiene que ser lunes.')
-   +'\nDías de la semana: '+fechas+'.\nDevuelve SOLO JSON con esta forma: {"resumen":"2 frases","dias":[{"dia":"Lun","fecha":"AAAA-MM-DD","tipo":"correr|gym|descanso","titulo":"corto","detalle":"qué hacer, con ritmos o ejercicios","min":0,"niveles":{"basica":"...","media":"...","alta":"..."}}]}. Incluye un objeto por cada día desde '+desde+'. Los niveles solo en sesiones de gym. Usa "descanso" para días sin entrenar.';
+   +'\nDías de la semana: '+fechas+'.\n'+textoPlan()+'\nDevuelve SOLO JSON con esta forma: {"resumen":"2 frases","dias":[{"dia":"Lun","fecha":"AAAA-MM-DD","tipo":"correr|gym|natacion|bici|descanso","titulo":"corto","detalle":"qué hacer, con ritmos o ejercicios","min":0,"niveles":{"basica":"...","media":"...","alta":"..."}}]}. Incluye un objeto por cada día desde '+desde+'. Los niveles solo en sesiones de gym. Usa "descanso" para días sin entrenar.';
   sample.json(prompt,{modelTier:'default',cache:false}).then(function(r){
-    var pf=perfil(), okTipo={correr:1,gym:1,descanso:1}, rango={};
+    var pf=perfil(), okTipo={correr:1,gym:1,natacion:1,bici:1,descanso:1}, rango={};
     DIAS.forEach(function(_,i){rango[iso(addDays(inicio,i))]=1});
     var cut=function(v,n){return String(v==null?'':v).slice(0,n)};
     var nuevo=(r&&Array.isArray(r.dias)?r.dias:[]).filter(function(d){return d&&typeof d.fecha==='string'&&rango[d.fecha]&&d.fecha>=desde}).map(function(d){
@@ -150,6 +156,15 @@ function marcar(fecha,estado,motivo){
   var dias=sem.dias.map(function(d){return d.fecha===fecha?Object.assign({},d,{estado:estado,motivo:motivo||''}):d});
   guardar('semanas',k,Object.assign({},sem,{dias:dias}));
 }
+function selectorSemana(){
+  var pl=planSel(), box=h('div',{style:'display:flex;flex-direction:column;gap:10px'});
+  box.appendChild(h('div',{class:'small mut',text:'¿Qué entrenas en la semana que vas a generar?'}));
+  box.appendChild(h('div',{class:'row'},DISC.map(function(x){return h('button',{class:'chip','aria-pressed':String(pl.disc.indexOf(x[0])>=0),onclick:function(){var d=toggle(pl.disc,x[0]);if(!d.length)return;guardarPerfil({plan:Object.assign({},pl,{disc:d})});render()}},x[1])})));
+  box.appendChild(h('div',{class:'row'},[['auto','Días automáticos'],['manual','Elegir los días']].map(function(m){return h('button',{class:'chip','aria-pressed':String(pl.modo===m[0]),onclick:function(){guardarPerfil({plan:Object.assign({},pl,{modo:m[0]})});render()}},m[1])})));
+  if(pl.modo==='manual')DISC.filter(function(x){return pl.disc.indexOf(x[0])>=0}).forEach(function(x){
+    box.appendChild(grupo('Días de '+x[1].toLowerCase(),'',pl.dias[x[0]]||[],function(d){var dd=Object.assign({},pl.dias);dd[x[0]]=toggle(dd[x[0]]||[],d);guardarPerfil({plan:Object.assign({},pl,{dias:dd})});render()}))});
+  return box;
+}
 function vistaSemana(sem){
   var lunes=iso(monday(new Date())), sig=iso(addDays(monday(new Date()),7));
   var c=h('div',{class:'card'},h('div',{class:'row sp'},h('h2',{text:'Mi semana'}),sem?h('span',{class:'small mut',text:sem.dias.filter(function(d){return d.estado==='hecha'}).length+' de '+sem.dias.filter(function(d){return d.tipo!=='descanso'}).length+' hechas'}):null));
@@ -163,6 +178,7 @@ function vistaSemana(sem){
       c.appendChild(det);
     });
   } else c.appendChild(h('p',{class:'mut small',text:'Todavía no hay rutina para esta semana.'}));
+  c.appendChild(selectorSemana());
   c.appendChild(h('div',{class:'row'},
     h('button',{class:'p',disabled:busy||!sample,onclick:function(){planificar(lunes,false)}},sem?'Regenerar esta semana':'Generar esta semana'),
     h('button',{disabled:busy||!sample,onclick:function(){planificar(sig,false)}},'Generar la próxima')));
@@ -266,6 +282,30 @@ function grafica(pesos,meta){
 
 function borrar(coleccion,id){delete S[coleccion][id];render();if(db)db.doc(coleccion+'/'+id).delete().catch(function(){msg='No se pudo borrar.';render()})}
 function toggle(arr,v){return arr.indexOf(v)>=0?arr.filter(function(x){return x!==v}):arr.concat([v])}
+var CADENAS=/smart ?fit|sports ?world|anytime|gold'?s ?gym|world ?gym|planet ?fitness|energy ?fit|crunch|snap ?fitness|f45|city ?fitness|mega ?gym/i;
+var APARATOS_COMUN=['Caminadora','Elíptica','Bicicleta estática','Remo (ergómetro)','Prensa de pierna','Extensión de cuádriceps','Curl femoral','Aductores y abductores','Press de pecho en máquina','Jalón al pecho','Remo sentado en polea','Press de hombro en máquina','Cruce de poleas','Mancuernas','Barra olímpica y discos','Rack de sentadilla','Banco plano y ajustable','Máquina Smith','Kettlebells','Colchonetas'];
+var APARATOS_BASICO=['Peso corporal','Mancuernas','Barra con discos','Banco','Bandas elásticas','Colchoneta','Cuerda para saltar'];
+var gymUi={res:[],busy:false,nota:''};
+function guardarGym(patch){var pf=perfil();guardarPerfil({gym:Object.assign({},pf.gym||{},patch)})}
+function elegirGimnasio(item,basico){
+  var cad=!basico&&CADENAS.test(item.nombre+' '+(item.lugar||''));
+  guardarGym({nombre:item.nombre,lugar:item.lugar||'',cadena:cad?item.nombre:'',fuente:cad?'cadena':'basico',aparatos:(cad?APARATOS_COMUN:APARATOS_BASICO).slice()});
+}
+function buscarGimnasio(q){
+  q=String(q||'').trim();
+  if(q.length<3){gymUi.nota='Escribe al menos 3 letras.';gymUi.res=[];render();return}
+  if(!gymSearch){elegirGimnasio({nombre:q,lugar:''},true);gymUi.nota='La búsqueda no está disponible. Usaré aparatos básicos.';render();return}
+  gymUi.busy=true;gymUi.nota='';gymUi.res=[];render();
+  gymSearch(q).then(function(r){
+    gymUi.busy=false;gymUi.res=r;
+    if(!r.length){elegirGimnasio({nombre:q,lugar:''},true);gymUi.nota='No lo encontré en el mapa. Usaré aparatos básicos; puedes agregar los tuyos.'}
+    else gymUi.nota='Elige tu gimnasio:';
+    render();
+  }).catch(function(){
+    gymUi.busy=false;elegirGimnasio({nombre:q,lugar:''},true);
+    gymUi.nota='No pude buscar ahora (sin internet o servicio ocupado). Usaré aparatos básicos; puedes agregar los tuyos.';render();
+  });
+}
 function vistaPerfil(){
   var p=perfil(), out=[];
   out.push(h('div',{class:'card hi'},h('h2',{text:'Días libres y de sobreesfuerzo'}),
@@ -275,22 +315,48 @@ function vistaPerfil(){
     h('div',null,h('div',{class:'small mut',style:'margin-bottom:6px',text:'Día de sobreesfuerzo preferido'}),h('div',{class:'row'},DIAS.filter(function(d){return p.no.indexOf(d)<0}).map(function(d){return h('button',{class:'chip','aria-pressed':String(p.descanso===d),onclick:function(){guardarPerfil({descanso:p.descanso===d?'':d});render()}},d)}))),
     h('label',{for:'carga'},'Carga de tu trabajo en general',(function(){var s=h('select',{id:'carga'},['Ligero','Normal','Pesado'].map(function(o){return h('option',{value:o,text:o,selected:p.carga===o})}));s.addEventListener('change',function(){guardarPerfil({carga:s.value})});return s})())));
   out.push(h('div',{class:'card'},h('h2',{text:'Inicio de mi semana'}),h('p',{class:'small mut',text:'Elige el día en que empieza tu semana de entrenamiento. Las rutinas se arman de ese día a 7 días después.'}),h('label',{for:'inicio'},'La semana empieza el',(function(){var s=h('select',{id:'inicio'},DIAS.map(function(o){return h('option',{value:o,text:o,selected:p.inicioSemana===o})}));s.addEventListener('change',function(){guardarPerfil({inicioSemana:s.value});render()});return s})())));
-  out.push(h('div',{class:'card'},h('h2',{text:'Minutos disponibles por día'}),h('div',{style:'display:grid;grid-template-columns:repeat(auto-fit,minmax(86px,1fr));gap:10px'},DIAS.map(function(d){
+  var mmodo=p.minutosModo==='personalizado'?'personalizado':'igual';
+  var primero=DIAS.map(function(d){return p.minutos[d]}).filter(function(x){return x!=null})[0];
+  var cuerpo;
+  if(mmodo==='igual'){
+    var ti=h('input',{type:'number',id:'mt',min:'0',max:'300',step:'5',inputmode:'numeric',placeholder:'60',value:primero!=null?primero:''});
+    ti.addEventListener('change',function(){var m={};if(ti.value!==''){var v=Math.max(0,Math.min(300,parseInt(ti.value,10)||0));DIAS.forEach(function(d){m[d]=v})}guardarPerfil({minutos:m})});
+    cuerpo=h('label',{for:'mt'},'Minutos cada día (se aplica a los 7 días)',ti);
+  } else cuerpo=h('div',{style:'display:grid;grid-template-columns:repeat(auto-fit,minmax(86px,1fr));gap:10px'},DIAS.map(function(d){
     var i=h('input',{type:'number',id:'m'+d,min:'0',max:'300',step:'5',inputmode:'numeric',placeholder:'60',value:p.minutos[d]!=null?p.minutos[d]:''});
     i.addEventListener('change',function(){var m=Object.assign({},p.minutos);if(i.value==='')delete m[d];else m[d]=Math.max(0,Math.min(300,parseInt(i.value,10)||0));guardarPerfil({minutos:m})});
-    return h('label',{for:'m'+d},d,i)}))));
-  var gy=p.gym||{}, gBrazo=gy.brazo||[], gPierna=gy.pierna||[];
-  function guardarGym(patch){guardarPerfil({gym:Object.assign({},p.gym||{},patch)})}
-  var gnom=h('input',{type:'text',id:'gn',maxlength:'80',placeholder:'Ej. Bestia´s Gym',value:gy.nombre||''});
+    return h('label',{for:'m'+d},d,i)}));
+  out.push(h('div',{class:'card'},h('h2',{text:'Minutos disponibles por día'}),
+    h('div',{class:'row'},[['igual','Mismo tiempo todos los días'],['personalizado','Personalizar por día']].map(function(m){return h('button',{class:'chip','aria-pressed':String(mmodo===m[0]),onclick:function(){guardarPerfil({minutosModo:m[0]});render()}},m[1])})),
+    cuerpo));
+  var gy=p.gym||{}, gBrazo=gy.brazo||[], gPierna=gy.pierna||[], gAp=gy.aparatos||[];
+  var gnom=h('input',{type:'text',id:'gn',maxlength:'80',placeholder:'Ej. Smart Fit Cumbres',value:gy.nombre||''});
   gnom.addEventListener('change',function(){guardarGym({nombre:gnom.value.trim()})});
-  var geq=h('textarea',{id:'ge',maxlength:'1500',placeholder:'Ej. Prensa de pierna, jalón al pecho, mancuernas de 5 a 30 kg, barra olímpica...'},gy.equipo||'');
+  gnom.addEventListener('keydown',function(ev){if(ev.key==='Enter'){ev.preventDefault();buscarGimnasio(gnom.value)}});
+  var geq=h('textarea',{id:'ge',maxlength:'1500',placeholder:'Ej. mancuernas de 5 a 30 kg, la prensa está descompuesta'},gy.equipo||'');
   geq.addEventListener('change',function(){guardarGym({equipo:geq.value.trim()})});
-  out.push(h('div',{class:'card'},h('h2',{text:'Mi gimnasio'}),
-    h('p',{class:'small mut',text:'Con esto armo tus rutinas de gym: qué días entrenas brazo y pierna, y con qué cuentas.'}),
+  var gca=h('input',{type:'text',id:'ga',maxlength:'60',placeholder:'Aparato nuevo o diferente'});
+  function agregarAparato(){var v=gca.value.trim();if(!v||gAp.length>=40||gAp.some(function(x){return x.toLowerCase()===v.toLowerCase()}))return;drafts.ga='';guardarGym({aparatos:gAp.concat([v]),fuente:gy.fuente||'manual'});render()}
+  gca.addEventListener('keydown',function(ev){if(ev.key==='Enter'){ev.preventDefault();agregarAparato()}});
+  var gc=h('div',{class:'card'},h('h2',{text:'Mi gimnasio'}),
+    h('p',{class:'small mut',text:'Busca tu gimnasio y cargo sus aparatos. Si no lo encuentro, uso aparatos básicos.'}),
     h('label',{for:'gn'},'Nombre',gnom),
-    grupo('Días de brazo','',gBrazo,function(d){guardarGym({brazo:toggle(gBrazo,d)});render()}),
-    grupo('Días de pierna','',gPierna,function(d){guardarGym({pierna:toggle(gPierna,d)});render()}),
-    h('label',{for:'ge'},'Máquinas, pesos y equipo disponible',geq)));
+    h('div',{class:'row'},h('button',{disabled:gymUi.busy,onclick:function(){buscarGimnasio(gnom.value)}},gymUi.busy?'Buscando...':'Buscar mi gimnasio')),
+    gymUi.nota?h('p',{class:'small mut',role:'status',text:gymUi.nota}):null,
+    gymUi.res.map(function(r){return h('button',{class:'res',onclick:function(){elegirGimnasio(r,false);gymUi.res=[];gymUi.nota='';render()}},h('b',{text:r.nombre}),h('span',{class:'small mut',text:r.lugar}))}));
+  if(gy.fuente){
+    gc.appendChild(h('h3',{text:'Aparatos'}));
+    gc.appendChild(h('p',{class:'small mut',text:gy.fuente==='cadena'?'Aparatos comunes de '+(gy.cadena||'tu gimnasio')+'. Toca los que tu sucursal no tenga para quitarlos.':gy.fuente==='basico'?'No lo encontré como cadena, así que uso aparatos básicos. Toca para quitar, o agrega los que sí tengas.':'Tu lista propia. Toca un aparato para quitarlo.'}));
+    gc.appendChild(h('div',{class:'row'},gAp.length?gAp.map(function(x,i){return h('button',{class:'chip','aria-pressed':'true','aria-label':'Quitar '+x,onclick:function(){guardarGym({aparatos:gAp.filter(function(_,j){return j!==i})});render()}},x)}):h('span',{class:'small mut',text:'Sin aparatos todavía.'})));
+    gc.appendChild(h('label',{for:'ga'},'Agregar aparato',gca));
+    gc.appendChild(h('button',{onclick:agregarAparato},'Agregar aparato'));
+    gc.appendChild(h('button',{class:'link',onclick:function(){guardarGym({fuente:'basico',cadena:'',aparatos:APARATOS_BASICO.slice()});render()}},'Usar aparatos básicos'));
+    gc.appendChild(h('button',{class:'link',onclick:function(){guardarGym({fuente:'manual',aparatos:[]});render()}},'Empezar con mi propia lista (último recurso)'));
+  }
+  gc.appendChild(grupo('Días de brazo','',gBrazo,function(d){guardarGym({brazo:toggle(gBrazo,d)});render()}));
+  gc.appendChild(grupo('Días de pierna','',gPierna,function(d){guardarGym({pierna:toggle(gPierna,d)});render()}));
+  gc.appendChild(h('label',{for:'ge'},'Notas del gimnasio (opcional)',geq));
+  out.push(gc);
   var por=h('textarea',{id:'porque',placeholder:'La razón por la que haces esto'},p.porque||'');
   por.addEventListener('change',function(){guardarPerfil({porque:por.value.trim()})});
   out.push(h('div',{class:'card'},h('h2',{text:'Mi porqué'}),por,h('p',{class:'small mut',text:'Te lo recuerdo los días de poca energía.'})));
@@ -309,7 +375,12 @@ function vistaPerfil(){
 function grupo(titulo,clase,sel,fn){return h('div',null,h('div',{class:'small mut',style:'margin-bottom:6px',text:titulo}),h('div',{class:'row'},DIAS.map(function(d){return h('button',{class:'chip '+clase,'aria-pressed':String(sel.indexOf(d)>=0),onclick:function(){fn(d)}},d)})))}
 
 /* ---------- render ---------- */
+/* No redibujar mientras hay un dedo o clic en curso: si un guardado termina entre mousedown y mouseup, el botón se reemplazaría y el toque se perdería. */
+var pulsando=false, renderPendiente=false;
+document.addEventListener('pointerdown',function(){pulsando=true},true);
+['pointerup','pointercancel'].forEach(function(ev){document.addEventListener(ev,function(){pulsando=false;if(renderPendiente){renderPendiente=false;setTimeout(render,60)}},true)});
 function render(){
+  if(pulsando){renderPendiente=true;return}
   var view=document.getElementById('view'), y=window.scrollY;
   view.querySelectorAll('input[id],textarea[id]').forEach(function(e){if(e.type!=='checkbox'&&e.type!=='range')drafts[e.id]=e.value});
   var ae=document.activeElement, keep=ae&&ae.id&&view.contains(ae)?{id:ae.id,s:ae.selectionStart,e:ae.selectionEnd}:null;
@@ -335,7 +406,7 @@ function subs(){
 
 function reset(){S={perfil:{},semanas:{},pesos:{},molestias:{}};chat=[];drafts={};msg='';tab='hoy';busy=false;razon=false;lastTriage=null;draftMood=null}
 window.EntrenadorApp={
-  start:function(b){reset();db=b.db;sample=b.sample;descargas=b.descargas;acct=b.account||null;estadoDb('Conectando');render();subs()},
+  start:function(b){reset();db=b.db;sample=b.sample;descargas=b.descargas;gymSearch=b.gymSearch||null;acct=b.account||null;estadoDb('Conectando');render();subs()},
   stop:function(){reset();db=null;sample=null;descargas=null;acct=null;var v=document.getElementById('view');v.replaceChildren();var n=document.getElementById('nav');n.replaceChildren()},
   status:estadoDb
 };

@@ -234,6 +234,19 @@
     return f;
   }
 
+  function makeGymSearch() {
+    return function (q) {
+      return sb.auth.getSession().then(function (r) {
+        var s = r.data && r.data.session; if (!s) throw { code: 'not_granted' };
+        return fetch(C.SUPABASE_URL + '/functions/v1/coach', {
+          method: 'POST', credentials: 'omit', referrerPolicy: 'no-referrer',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + s.access_token, 'apikey': C.SUPABASE_ANON_KEY },
+          body: JSON.stringify({ action: 'gym_search', q: String(q).slice(0, 100) })
+        });
+      }).then(function (res) { if (!res.ok) throw { code: 'unavailable' }; return res.json(); })
+        .then(function (j) { return Array.isArray(j.results) ? j.results : []; });
+    };
+  }
   var descargas = {
     save: function (o) {
       var url = URL.createObjectURL(new Blob([o.data], { type: 'application/json' }));
@@ -255,7 +268,7 @@
       dbActual = db; authEl.classList.add('hide'); authEl.replaceChildren();
       shell.classList.remove('hide'); navwrap.classList.remove('hide');
       window.EntrenadorApp.start({
-        db: db, sample: makeSample(), descargas: descargas,
+        db: db, sample: makeSample(), gymSearch: makeGymSearch(), descargas: descargas,
         account: { email: session.user.email || '', signOut: function () { return sb.auth.signOut(); }, signOutAll: function () { return sb.auth.signOut({ scope: 'global' }); } }
       });
       window.EntrenadorApp.status('Guardado en línea');

@@ -40,6 +40,8 @@ function aalOf(jwt: string): string {
   } catch { return ""; }
 }
 
+let lastGym = 0;
+
 Deno.serve(async (req) => {
   const origin = req.headers.get("origin") ?? "";
   if (req.method === "OPTIONS") return reply(204, null, origin);
@@ -58,8 +60,32 @@ Deno.serve(async (req) => {
 
   // 2. Entrada acotada.
   if (Number(req.headers.get("content-length") ?? "0") > 100_000) return reply(413, { error: "size" }, origin);
-  let body: { messages?: unknown; json?: unknown };
+  let body: { messages?: unknown; json?: unknown; action?: unknown; q?: unknown };
   try { body = await req.json(); } catch { return reply(400, { error: "json" }, origin); }
+  if (body.action === "gym_search") {
+    // Búsqueda de gimnasios en OpenStreetMap (Nominatim). Solo el dueño llega aquí; máx. 1 consulta por segundo.
+    const q = typeof body.q === "string" ? body.q.trim().slice(0, 100) : "";
+    if (q.length < 3) return reply(400, { error: "query" }, origin);
+    const ahora = Date.now();
+    if (ahora - lastGym < 1100) return reply(429, { error: "slow" }, origin);
+    lastGym = ahora;
+    try {
+      const u = new URL("https://nominatim.openstreetmap.org/search");
+      u.searchParams.set("q", q); u.searchParams.set("format", "jsonv2"); u.searchParams.set("limit", "6");
+      u.searchParams.set("countrycodes", "mx"); u.searchParams.set("accept-language", "es");
+      const r = await fetch(u, { headers: { "User-Agent": "MiEntrenador/1.0 (uso personal)", "Accept": "application/json" }, signal: AbortSignal.timeout(8000) });
+      if (!r.ok) return reply(502, { error: "upstream" }, origin);
+      const arr = await r.json();
+      const results = (Array.isArray(arr) ? arr : []).slice(0, 6).map((x: { name?: string; display_name?: string }) => {
+        const lugar = String(x.display_name ?? "").slice(0, 160);
+        return { nombre: String(x.name ?? "").slice(0, 80) || lugar.split(",")[0].slice(0, 80), lugar };
+      });
+      return reply(200, { results }, origin);
+    } catch (e) {
+      console.error("gym_search error", (e as Error).name);
+      return reply(502, { error: "upstream" }, origin);
+    }
+  }
   const msgs = body.messages;
   if (!Array.isArray(msgs) || msgs.length < 1 || msgs.length > 12) return reply(400, { error: "messages" }, origin);
   let total = 0;

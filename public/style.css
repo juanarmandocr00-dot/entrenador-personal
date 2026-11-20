@@ -112,3 +112,6 @@ button.link{color:var(--acc2);background:none;border:0;min-height:44px;text-alig
 button.link:hover:not(:disabled){background:none}
 
 @media (prefers-reduced-motion:reduce){button{transition:none}}
+
+/* resultados de búsqueda de gimnasio */
+.res{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:2px;width:100%;min-height:56px;padding:10px 14px}
