@@ -12,6 +12,8 @@ App personal de entrenamiento con IA. Una sola persona la usa, con login, verifi
 | `public/_headers` | Cabeceras de seguridad y política CSP estricta. |
 | `supabase/schema.sql` | Tablas, políticas RLS y verificación en dos pasos obligatoria. |
 | `supabase/functions/coach/` | Función del servidor que llama a Claude. La llave de Anthropic vive solo ahí. |
+| `public/metas.js` | Reglas de metas: tipos, esfuerzo, disciplinas permitidas, bloqueo de metas mayores, semáforo de riesgo y plan por fases. |
+| `tests/` | Pruebas de las reglas de metas. Se corren con `node --test` (Node 18 o más nuevo). |
 
 ## Cómo está protegido
 
@@ -57,3 +59,17 @@ Límite que conviene conocer: `supabase-js` guarda la sesión en `localStorage`,
 
 - Importar a esta versión los datos de la versión de prueba (hoy hay que capturarlos de nuevo).
 - Conexión con Strava y Apple Salud.
+
+## Reglas de metas
+
+- **Una meta principal activa.** Las demás son secundarias. La primera meta que agregas es la principal.
+- **Esfuerzo:** 5K < 10K < medio maratón < maratón < Ironman 70.3 < Ironman. Montaña: km + desnivel/100, equiparado a esa escala.
+- **Bloqueo:** con una principal activa no se puede agregar ni cambiar a una meta de mayor esfuerzo. Se habilita cuando pasa su fecha o la marcas como lograda.
+- **Disciplinas según la meta:** calle y montaña → correr y gym; triatlón → natación, bici, correr y gym. Las demás quedan bloqueadas, también en lo que devuelve el coach.
+- **Fases:** base, desarrollo, afinación (hasta la fecha) y recuperación (después).
+
+Estas reglas viven en `public/metas.js` y se validan en la app, no solo en el prompt. Para probarlas:
+
+```
+node --test
+```

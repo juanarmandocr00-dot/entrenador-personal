@@ -221,3 +221,10 @@ input[type=checkbox]:checked{background:var(--acc);border-color:var(--acc);box-s
 .pl-f{display:flex;flex-direction:column;line-height:1.3}
 .pl-km{font-weight:700}
 .fase-hoy{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;min-height:56px;padding:10px 14px;width:100%;border-color:var(--line)}
+
+/* ---- metas con reglas ---- */
+.f-desarrollo{--c:var(--acc)} .f-afinacion{--c:rgba(255,106,0,.45)} .f-recuperacion{--c:var(--ok)}
+.meta.es-principal{border-top:2px solid var(--acc)}
+.chip.bloq{border-style:dashed;color:var(--mut)}
+.chip.bloq[aria-pressed=true]{color:var(--fg)}
+.row.dos{display:grid;grid-template-columns:1fr 1fr;gap:10px}

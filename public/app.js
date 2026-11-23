@@ -14,7 +14,7 @@ var MESES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','di
 var fmt=function(s){var d=parse(s);return d.getDate()+' '+MESES[d.getMonth()]};
 
 var S={perfil:{},semanas:{},pesos:{},molestias:{}};
-var db=null, sample=null, tab='hoy', busy=false, msg='', chat=[], draftMood=null, razon=false, lastTriage=null, drafts={}, descargas=null, acct=null, gymSearch=null, nuevaMeta={dist:'21k',prio:'A'}, revisar=null, msgMeta='';
+var db=null, sample=null, tab='hoy', busy=false, msg='', chat=[], draftMood=null, razon=false, lastTriage=null, drafts={}, descargas=null, acct=null, gymSearch=null, nuevaMeta={tipo:'calle',dist:'21k'}, revisar=null, msgMeta='', bloqueo='', quitarMeta=null;
 var ICON={
   hoy:'<path d="M4 11l8-7 8 7v9a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/>',
   check:'<path d="M5 12l4 4 10-10"/><rect x="3" y="3" width="18" height="18" rx="4"/>',
@@ -46,103 +46,22 @@ function guardarPerfil(patch){var antes=S.perfil,p=Object.assign({},perfil(),pat
 function semanaActual(){return S.semanas[iso(monday(new Date()))]}
 function proximaMeta(){
   var hoy=iso(new Date());
-  var m=(perfil().metas||[]).filter(function(x){return x.fecha>=hoy}).sort(function(a,b){return a.fecha<b.fecha?-1:1});
-  return m[0]||null;
+  return MT.ordenar(perfil().metas).filter(function(x){return MT.activa(x,hoy)})[0]||null;
 }
 function pesosOrdenados(){return Object.keys(S.pesos).sort().map(function(k){return S.pesos[k]})}
 
-/* ---------- metas y revisión de riesgo ----------
-   Las reglas viven aquí, en código, para que el aviso sea siempre el mismo. La IA solo lo explica.
-   Son guías generales de entrenamiento, no indicaciones médicas. */
-var DIST={'5k':{t:'5K',n:1},'10k':{t:'10K',n:2},'21k':{t:'Medio maratón',n:3},'42k':{t:'Maratón',n:4},'otra':{t:'Otra',n:0}};
-var EXP=[['0','Ninguna'],['5k','5K'],['10k','10K'],['21k','Medio maratón'],['42k','Maratón']];
-/* semanas desde hoy: [mínimo, recomendado]. Menos del mínimo = riesgoso; menos del recomendado = precaución. */
-var PREP={'5k':{nueva:[6,8],conocida:[3,4]},'10k':{nueva:[8,10],conocida:[4,6]},'21k':{nueva:[12,16],conocida:[6,10]},'42k':{nueva:[18,20],conocida:[10,16]}};
-function distDe(m){
-  if(DIST[m.dist])return m.dist;
-  var n=(m.nombre||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
-  if(/medio|half|21/.test(n))return '21k'; if(/marat|42/.test(n))return '42k';
-  if(/10 ?k/.test(n))return '10k'; if(/5 ?k/.test(n))return '5k'; return 'otra';
-}
-function prioDe(m){return m.prio==='A'||m.prio==='C'?m.prio:'B'}
-function claveMeta(m){return m.fecha+'|'+m.nombre}
-function expMax(){var e=(perfil().exp||{}).max;return DIST[e]?DIST[e].n:0}
-function semanasHasta(f,desde){return Math.floor((parse(f)-parse(desde))/(7*864e5))}
-function metaPrincipal(){
-  var hoy=iso(new Date()), m=(perfil().metas||[]).filter(function(x){return x.fecha>=hoy}).sort(function(a,b){return a.fecha<b.fecha?-1:1});
-  return m.filter(function(x){return prioDe(x)==='A'})[0]||m[0]||null;
-}
-/* Devuelve avisos {clave, nivel:'rojo'|'amarillo', texto} para las metas futuras. */
-function revisarMetas(metas){
-  var hoy=iso(new Date()), avisos=[], hecho=expMax(), prev=null;
-  var fut=metas.filter(function(m){return m.fecha>=hoy}).sort(function(a,b){return a.fecha<b.fecha?-1:1});
-  var a=fut.filter(function(m){return prioDe(m)==='A'})[0], na=a?DIST[distDe(a)].n:0;
-  function av(m,nivel,texto){avisos.push({clave:claveMeta(m),nivel:nivel,texto:texto})}
-  fut.forEach(function(m){
-    var d=distDe(m); if(d==='otra')return;
-    var t=DIST[d].t, n=DIST[d].n, nueva=n>hecho, s=semanasHasta(m.fecha,hoy), r=PREP[d][nueva?'nueva':'conocida'];
-    if(s<r[0])av(m,'rojo','Faltan '+s+' semanas para tu '+t+'. '+(nueva?'Como sería tu primera vez en esa distancia, ':'')+'lo mínimo seguro son '+r[0]+' semanas de preparación. Riesgo alto de lesión.');
-    else if(s<r[1])av(m,'amarillo','Faltan '+s+' semanas para tu '+t+'. Lo ideal son '+r[1]+'; vas justo, así que la subida de carga será más cuidadosa.');
-    if(d==='42k'&&hecho<3)av(m,'rojo','Antes de tu primer maratón conviene terminar un medio maratón. Saltar directo al 42K aumenta mucho el riesgo de lesión.');
-    if(prev){
-      var pd=distDe(prev), g=semanasHasta(m.fecha,prev.fecha), pt=DIST[pd].t;
-      if(pd==='42k'&&d==='42k'){if(g<12)av(m,'rojo','Solo '+g+' semanas después de otro maratón. Para recuperarte y volver a prepararte necesitas al menos 12.');else if(g<16)av(m,'amarillo','A '+g+' semanas de otro maratón. Es posible, pero lo ideal son 16 o más.')}
-      else if(pd==='42k'&&d==='21k'){if(g<4)av(m,'rojo','Solo '+g+' semanas después de un maratón. El cuerpo necesita al menos 4 para recuperarse.');else if(g<6)av(m,'amarillo','A '+g+' semanas de un maratón. Córrelo suave, sin buscar marca.')}
-      else if(pd==='21k'&&d==='42k'){var min=nueva?12:4;if(g<min)av(m,'rojo',(nueva?'Tu primer maratón quedaría a solo '+g+' semanas de tu medio maratón. Para un primer maratón deja al menos 12 semanas entre ambos: primero te recuperas del 21K y luego construyes la base del 42K. ':'Solo '+g+' semanas después de tu medio maratón. ')+'Riesgo alto de lesión.');else if(!nueva&&g<6)av(m,'amarillo','A '+g+' semanas de tu medio maratón. Vas justo.')}
-      else if(n>=3&&DIST[pd].n>=3&&g<3)av(m,'amarillo','Dos carreras largas con solo '+g+' semanas entre ellas ('+pt+' y '+t+').');
-    }
-    if(a&&m!==a&&n>na&&na>0)av(m,'amarillo','Es más larga que tu meta principal. Una carrera secundaria no debería pesar más que la principal; considera hacerla la principal.');
-    hecho=Math.max(hecho,n); prev=m;
-  });
-  return avisos;
-}
-/* ---------- plan por fases hacia la meta principal ----------
-   El plan tiene una duración fija que termina en la semana de la carrera, así que el número
-   de semana no se mueve. Antes de que empiece, la fase es "Base general". */
-var PLAN_LEN={'5k':[8,6],'10k':[10,8],'21k':[16,12],'42k':[20,16]};   /* [primera vez, ya la corrió] */
-var TAPER={'5k':1,'10k':1,'21k':2,'42k':3};                           /* incluye la semana de carrera */
-var LARGA_PICO={'5k':8,'10k':12,'21k':18,'42k':32};                   /* km de la salida larga más larga */
-var LARGA_INI={'0':3,'5k':5,'10k':8,'21k':12,'42k':14};                /* si no dice su salida reciente */
-var KM_CARRERA={'5k':5,'10k':10,'21k':21.1,'42k':42.2};
-var FASES={
-  pre:{t:'Base general',f:'Constancia y kilómetros suaves en Zona 2, más fuerza. Sin ritmos rápidos.'},
-  base:{t:'Base',f:'Kilómetros suaves en Zona 2, técnica y fuerza. Todavía nada de ritmo rápido.'},
-  cons:{t:'Construcción',f:'La salida larga sube poco a poco y entra una sesión de calidad por semana (tempo o intervalos).'},
-  pico:{t:'Pico',f:'Las semanas más exigentes: la salida larga más larga y tramos a ritmo de carrera.'},
-  taper:{t:'Descarga final',f:'Baja el volumen, mantén un poco de ritmo y descansa para llegar fresco.'},
-  carrera:{t:'Semana de carrera',f:'Solo trotes cortos y suaves. Duerme bien, come lo de siempre y disfruta.'}
-};
-var DESCARGA='Semana de descarga: baja 20 a 30% el volumen para que el cuerpo asimile.';
-function redondo(x){return Math.round(x*2)/2}
-function planDe(meta){
-  var d=distDe(meta); if(!PLAN_LEN[d])return null;
-  var ex=perfil().exp||{}, nueva=DIST[d].n>expMax(), L=PLAN_LEN[d][nueva?0:1], T=TAPER[d], rest=L-T;
-  var pico=Math.max(1,Math.round(rest*.25)), base=Math.max(1,Math.round(rest*.35)), cons=rest-base-pico;
-  var ini=+ex.larga>0?+ex.larga:LARGA_INI[ex.max||'0'], top=LARGA_PICO[d], paso=d==='42k'?2:1.5;
-  var inicio=addDays(monday(parse(meta.fecha)),-7*(L-1)), sem=[], lr=Math.min(ini,top), max=0;
-  for(var k=1;k<=L;k++){
-    var fase=k<=base?'base':k<=base+cons?'cons':k<=rest?'pico':k===L?'carrera':'taper';
-    var desc=(fase==='base'||fase==='cons')&&k%4===0, km;
-    if(k<=rest){lr=Math.max(lr,Math.min(top,ini+(top-ini)*k/rest,lr+paso));km=desc?lr*.75:lr;max=Math.max(max,lr)}
-    else if(fase==='taper')km=max*(.75-.2*(k-rest-1));
-    else km=KM_CARRERA[d];
-    sem.push({k:k,lunes:iso(addDays(inicio,7*(k-1))),fase:fase,desc:desc,km:redondo(km)});
-  }
-  return {meta:meta,d:d,L:L,nueva:nueva,inicio:iso(inicio),sem:sem,ini:ini,top:top,max:redondo(max),fases:{base:base,cons:cons,pico:pico,taper:T-1,carrera:1}};
-}
-/* La semana del plan que contiene esa fecha: {k,...}, {pre:true,faltan} o null si ya pasó. */
-function semanaPlan(plan,fechaIso){
-  var k=Math.round((monday(parse(fechaIso))-parse(plan.inicio))/(7*864e5))+1;
-  if(k<1)return {pre:true,faltan:1-k,fase:'pre',km:redondo(plan.ini)};
-  return plan.sem[k-1]||null;
-}
-function textoFase(fechaIso){
-  var m=metaPrincipal(), pl=m&&planDe(m); if(!pl)return 'PLAN: sin meta principal con distancia; arma semanas equilibradas de mantenimiento.';
-  var s=semanaPlan(pl,fechaIso); if(!s)return 'PLAN: la meta principal ya pasó.';
-  var meta=m.nombre+' ('+DIST[pl.d].t+', '+m.fecha+')';
-  if(s.pre)return 'PLAN: '+(s.faltan===1?'falta 1 semana':'faltan '+s.faltan+' semanas')+' para que empiece el plan de '+pl.L+' semanas hacia '+meta+'. Fase: Base general. '+FASES.pre.f+' Salida larga de hasta '+s.km+' km.';
-  return 'PLAN: semana '+s.k+' de '+pl.L+' hacia '+meta+'. Fase: '+FASES[s.fase].t+'. '+(s.desc?DESCARGA:FASES[s.fase].f)+' '+(s.fase==='carrera'?'La carrera es esta semana.':'Salida larga objetivo: '+s.km+' km (no la pases más de 10%).');
-}
+/* ---------- metas: las reglas viven en metas.js (probadas con node --test) ---------- */
+var MT=window.Metas, FASES=MT.FASES;
+function hoyS(){return iso(new Date())}
+function expP(){return perfil().exp||{}}
+function metasP(){return perfil().metas||[]}
+function metaPrincipal(){return MT.principal(metasP(),hoyS())}
+function revisarMetas(metas){return MT.revisar(metas,expP(),hoyS())}
+function planDe(meta){return MT.plan(meta,expP(),startIdx())}
+function semanaPlan(pl,f){return MT.semanaPlan(pl,f,startIdx())}
+function textoFase(f){return MT.textoFase(metasP(),expP(),hoyS(),f,startIdx())}
+function claveMeta(m){return MT.clave(m)}
+function permitidas(){return MT.disciplinas(metasP(),hoyS())}
 function nivelDe(avisos,m){var k=claveMeta(m),l=avisos.filter(function(x){return x.clave===k});return l.some(function(x){return x.nivel==='rojo'})?'rojo':l.length?'amarillo':'verde'}
 
 /* ---------- coach ---------- */
@@ -158,8 +77,9 @@ var REGLAS=[
  'Día de sobreesfuerzo: es un día libre de su trabajo o escuela, no de ejercicio. Ahí va la salida larga o la sesión más exigente, con tope de seguridad, y el día siguiente va más ligero.',
  'Respeta los días en que no puede entrenar y los minutos disponibles de cada día. No subas el volumen semanal de golpe.',
  'En la semana previa a una carrera baja el volumen y evita sesiones nuevas o muy duras.',
- 'La meta de prioridad A manda el plan: cada semana debe acercarlo a ella de forma progresiva según las semanas que faltan (base, construcción, pico y descarga final). Las metas B y C son carreras de apoyo: solo bajas la carga 2 o 3 días antes y no cambian el plan.',
- 'Sigue la fase del PLAN de la semana que generas: su enfoque y su salida larga objetivo. En semana de descarga baja el volumen aunque el usuario se sienta bien. Si hubo una carrera en los últimos 10 días, empieza con días de recuperación.',
+ 'La META PRINCIPAL manda el plan: cada semana la acerca a ella según su fase (base, desarrollo, afinación y recuperación). Las metas secundarias son de menor esfuerzo y van dentro del plan: solo baja la carga 2 o 3 días antes, sin afinación completa. Las metas en pausa no se entrenan todavía.',
+ 'Usa solo las DISCIPLINAS PERMITIDAS por la meta principal; nunca programes otras. En metas de montaña, las salidas van en subida o en terreno y la fuerza se enfoca en piernas.',
+ 'Sigue la fase del PLAN de la semana que generas: su enfoque y sus objetivos. En semana de descarga baja el volumen aunque el usuario se sienta bien. Si hubo una carrera en los últimos 10 días, empieza con días de recuperación.',
  'Si hay RIESGOS en rojo, dilo en el resumen y prioriza la salud: no subas el volumen más rápido de lo seguro para llegar a esa carrera.'
 ].join('\n');
 
@@ -167,13 +87,16 @@ function contexto(){
   var p=perfil(), sem=semanaActual(), pesos=pesosOrdenados().slice(-8);
   var hoy=new Date(), lim=iso(addDays(hoy,-14));
   var mol=Object.keys(S.molestias).map(function(k){return S.molestias[k]}).filter(function(m){return m.fecha>=lim});
-  var metas=(p.metas||[]).filter(function(m){return m.fecha>=iso(hoy)}).map(function(m){return {nombre:m.nombre,fecha:m.fecha,distancia:DIST[distDe(m)].t,prioridad:prioDe(m),semanasRestantes:semanasHasta(m.fecha,iso(hoy))}});
-  var mp=metaPrincipal(), riesgos=revisarMetas(p.metas||[]).map(function(x){return x.nivel+': '+x.texto});
+  var hoyI=iso(hoy), ROLES={principal:'principal',secundaria:'secundaria',pausa:'en pausa: no entrenar para ella todavía'};
+  var metas=MT.ordenar(p.metas).filter(function(m){return MT.activa(m,hoyI)}).map(function(m){return {nombre:m.nombre,fecha:m.fecha,meta:MT.descripcion(m),rol:ROLES[MT.rol(m,p.metas,hoyI)],semanasRestantes:MT.semanasEntre(hoyI,m.fecha)}});
+  var mp=metaPrincipal(), perm=permitidas(), riesgos=revisarMetas(p.metas||[]).map(function(x){return x.nivel+': '+x.texto});
+  var recientes=(p.metas||[]).filter(function(m){var fin=m.lograda||m.fecha;return (m.lograda||m.fecha<hoyI)&&fin>=iso(addDays(hoy,-10))}).map(function(m){return m.nombre+' '+(m.lograda||m.fecha)+(m.lograda?' (lograda)':'')});
   return REGLAS+'\n\nHoy es '+DIAS[(hoy.getDay()+6)%7]+' '+iso(hoy)+'.\n'
-   +'PERFIL: '+JSON.stringify({libres:p.libres,noPuedeEntrenar:p.no,diaSobreesfuerzo:p.descanso,cargaDeTrabajo:p.carga,minutosPorDia:p.minutos,gym:p.gym,porque:p.porque,carreraMasLargaTerminada:EXP.filter(function(e){return e[0]===((p.exp||{}).max||'0')})[0][1]})+'\n'
+   +'PERFIL: '+JSON.stringify({libres:p.libres,noPuedeEntrenar:p.no,diaSobreesfuerzo:p.descanso,cargaDeTrabajo:p.carga,minutosPorDia:p.minutos,gym:p.gym,porque:p.porque,carreraMasLargaTerminada:(MT.EXP.filter(function(e){return e[0]===((p.exp||{}).max||'0')})[0]||MT.EXP[0])[1]})+'\n'
    +'METAS: '+JSON.stringify(metas)+'\n'
-   +'CARRERAS RECIENTES (10 días): '+JSON.stringify((p.metas||[]).filter(function(m){return m.fecha<iso(hoy)&&m.fecha>=iso(addDays(hoy,-10))}).map(function(m){return m.nombre+' '+m.fecha}))+'\n'
-   +'META PRINCIPAL: '+(mp?mp.nombre+' ('+DIST[distDe(mp)].t+') el '+mp.fecha+', faltan '+semanasHasta(mp.fecha,iso(hoy))+' semanas':'ninguna')+'\n'
+   +'CARRERAS RECIENTES (10 días): '+JSON.stringify(recientes)+'\n'
+   +'META PRINCIPAL: '+(mp?mp.nombre+' ('+MT.descripcion(mp)+') el '+mp.fecha+', faltan '+MT.semanasEntre(hoyI,mp.fecha)+' semanas. '+MT.TIPOS[MT.tipoDe(mp)].enfoque:'ninguna')+'\n'
+   +'DISCIPLINAS PERMITIDAS: '+(perm?perm.join(', '):'todas (no hay meta principal)')+'\n'
    +'RIESGOS: '+JSON.stringify(riesgos)+'\n'
    +textoFase(iso(hoy))+'\n'
    +'SEMANA ACTUAL: '+JSON.stringify(sem&&sem.dias||[])+'\n'
@@ -194,9 +117,10 @@ function bloqueEjercicios(d){
   return b;
 }
 var DISC=[['correr','Correr'],['gym','Gym'],['natacion','Natación'],['bici','Bici']];
-function discList(){return DISC.concat((perfil().extras||[]).map(function(n){return ['x:'+n,n]}))}
-function planSel(){var q=perfil().plan||{};var disc=(q.disc||[]).filter(function(x){return discList().some(function(d){return d[0]===x})});return {disc:disc.length?disc:['correr','gym'],modo:q.modo==='manual'?'manual':'auto',dias:q.dias||{}}}
-function textoPlan(){var pl=planSel(),s='DISCIPLINAS ELEGIDAS PARA ESTA SEMANA: '+pl.disc.map(function(k){return k.indexOf('x:')===0?k.slice(2)+' (disciplina propia, tipo "otra"; pon su nombre al inicio del título)':k}).join(', ')+'.';
+/* Con meta principal solo aparecen sus disciplinas; las demás (y las propias) quedan bloqueadas. */
+function discList(){var perm=permitidas();if(perm)return DISC.filter(function(d){return perm.indexOf(d[0])>=0});return DISC.concat((perfil().extras||[]).map(function(n){return ['x:'+n,n]}))}
+function planSel(){var q=perfil().plan||{};var disc=(q.disc||[]).filter(function(x){return discList().some(function(d){return d[0]===x})});return {disc:disc.length?disc:(permitidas()||['correr','gym']),modo:q.modo==='manual'?'manual':'auto',dias:q.dias||{}}}
+function textoPlan(){var pl=planSel(),perm=permitidas(),s=(perm?'DISCIPLINAS PERMITIDAS POR LA META PRINCIPAL: '+perm.join(', ')+'. No uses ninguna otra.\n':'')+'DISCIPLINAS ELEGIDAS PARA ESTA SEMANA: '+pl.disc.map(function(k){return k.indexOf('x:')===0?k.slice(2)+' (disciplina propia, tipo "otra"; pon su nombre al inicio del título)':k}).join(', ')+'.';
   if(pl.modo==='manual'){var o={};pl.disc.forEach(function(k){o[k]=pl.dias[k]||[]});s+=' Armando eligió los días de cada disciplina: '+JSON.stringify(o)+'. Respétalos y distribuye tú las que queden sin días.'}
   else s+=' Distribuye los días tú.';return s}
 function errorCoach(e,que){var c=e&&e.code;if(c==='not_granted')return 'Tu sesión no tiene permiso para usar el coach. Cierra sesión y vuelve a entrar.';if(c==='rate_limited')return 'Llegaste al límite de consultas de hoy. Mañana se reinicia.';if(c==='offline')return 'No hay conexión con el coach. Revisa tu internet.';if(c==='timeout')return 'El coach tardó demasiado. Inténtalo otra vez.';if(c==='bad_json')return 'La respuesta del coach llegó incompleta. Inténtalo otra vez.';return que}
@@ -208,12 +132,13 @@ function planificar(semanaIso,reajuste){
   var prompt=contexto()+'\n\nTAREA: '+(reajuste?'Reajusta lo que queda de la semana desde '+desde+' inclusive, considerando las sesiones ya hechas o no realizadas.':'Genera la rutina de la semana de entrenamiento que empieza el '+dayName(inicio)+' '+semanaIso+' y termina 6 días después. Armando elige el día de inicio, no tiene que ser lunes.')
    +'\nDías de la semana: '+fechas+'.\n'+textoFase(semanaIso)+'\n'+textoPlan()+(window.Ejercicios?'\nEJERCICIOS CON ILUSTRACIÓN (ids): '+Ejercicios.lista.map(function(x){return x.id+' ('+x.nombre+')'}).join(', ')+'. En cada sesión de gym agrega "ejercicios":["id"] con 3 a 6 ids de esa lista, acordes a los aparatos disponibles y al grupo muscular del día; los ejercicios que no estén en la lista van solo en el texto.':'')+'\nDevuelve SOLO JSON con esta forma: {"resumen":"2 frases","dias":[{"dia":"Lun","fecha":"AAAA-MM-DD","tipo":"correr|gym|natacion|bici|otra|descanso","titulo":"corto","detalle":"qué hacer, con ritmos o ejercicios","min":0,"niveles":{"basica":"...","media":"...","alta":"..."}}]}. Incluye un objeto por cada día desde '+desde+'. Los niveles solo en sesiones de gym. Usa "descanso" para días sin entrenar.';
   sample.json(prompt,{modelTier:'default',cache:false}).then(function(r){
-    var pf=perfil(), okTipo={correr:1,gym:1,natacion:1,bici:1,otra:1,descanso:1}, rango={};
+    var pf=perfil(), perm=permitidas(), okTipo={correr:1,gym:1,natacion:1,bici:1,otra:1,descanso:1}, rango={};
     DIAS.forEach(function(_,i){rango[iso(addDays(inicio,i))]=1});
     var cut=function(v,n){return String(v==null?'':v).slice(0,n)};
     var nuevo=(r&&Array.isArray(r.dias)?r.dias:[]).filter(function(d){return d&&typeof d.fecha==='string'&&rango[d.fecha]&&d.fecha>=desde}).map(function(d){
       var dn=dayName(parse(d.fecha)), t=okTipo[d.tipo]?d.tipo:'descanso', min=Math.max(0,Math.min(300,parseInt(d.min,10)||0)), cap=pf.minutos[dn];
       var o={dia:dn,fecha:d.fecha,tipo:t,titulo:cut(d.titulo,80),detalle:cut(d.detalle,600),min:min};
+      if(perm&&o.tipo!=='descanso'&&perm.indexOf(o.tipo)<0){o.tipo='descanso';o.titulo='Descanso';o.detalle='El coach propuso una disciplina que no es parte de tu meta principal, así que este día queda de descanso.';o.min=0}
       if(pf.no.indexOf(dn)>=0||cap===0){o.tipo='descanso';o.titulo='No entrenas';o.detalle='Marcaste este día como no disponible.';o.min=0}
       else if(cap!=null&&min>cap){o.min=cap;o.detalle+=' (Ajustado a tus '+cap+' min disponibles.)'}
       if(o.tipo==='gym'&&window.Ejercicios&&Array.isArray(d.ejercicios))o.ejercicios=d.ejercicios.filter(function(i){return typeof i==='string'&&Ejercicios.existe(i)}).filter(function(x,i,a){return a.indexOf(x)===i}).slice(0,8);
@@ -268,11 +193,13 @@ function vistaHoy(){
       c.appendChild(h('button',{onclick:function(){planificar(iso(monday(new Date())),true)},disabled:busy},'Reajustar el resto de la semana'))}
     out.push(c);
   } else out.push(h('div',{class:'hero'},h('div',{class:'kicker',text:'Hoy · '+dayName(new Date())+' '+fmt(hoyIso)}),h('h2',{class:'hero-t',text:'Tu semana aún no está lista'}),h('p',{class:'mut',text:'Elige abajo qué vas a entrenar y genera tu semana.'})));
-  var mpH=metaPrincipal(), plH=mpH&&planDe(mpH), swH=plH&&semanaPlan(plH,hoyIso);
-  if(swH&&!swH.pre&&swH.fase!=='carrera')out.push(h('button',{class:'fase-hoy',onclick:function(){tab='prog';render();window.scrollTo(0,0)}},h('span',{class:'kicker',text:'Semana '+swH.k+' de '+plH.L}),h('span',null,h('b',{text:FASES[swH.fase].t+(swH.desc?' · descarga':'')}),' · salida larga '+swH.km+' km')));
+  var mpH=metaPrincipal(), plH=mpH&&planDe(mpH), swH=plH&&semanaPlan(plH,hoyIso), recH=MT.recuperacion(p.metas||[],hoyIso);
+  function irPlan(){tab='prog';render();window.scrollTo(0,0)}
+  if(recH)out.push(h('button',{class:'fase-hoy',onclick:irPlan},h('span',{class:'kicker',text:'Recuperación · semana '+recH.k+' de '+recH.R}),h('span',null,'Después de ',h('b',{text:recH.meta.nombre}),'. Todo suave esta semana.')));
+  else if(swH&&!swH.pre&&!swH.carrera)out.push(h('button',{class:'fase-hoy',onclick:irPlan},h('span',{class:'kicker',text:'Semana '+swH.k+' de '+plH.L}),h('span',null,h('b',{text:FASES[swH.fase].t+(swH.desc?' · descarga':'')}),swH.km?' · salida larga '+swH.km+' km':'')));
   if(meta&&!semanaCarrera){var mp=metaPrincipal();
     out.push(h('div',{class:'race-mini'},h('div',{class:'race-n'},h('span',{class:'num',text:String(n)}),h('span',{class:'small mut',text:n===1?'día':'días'})),
-      h('div',{class:'race-i'},h('b',{text:meta.nombre}),h('div',{class:'small mut',text:fmt(meta.fecha)+(mp&&mp===meta?' · meta principal':'')}))))}
+      h('div',{class:'race-i'},h('b',{text:meta.nombre}),h('div',{class:'small mut',text:fmt(meta.fecha)+(mp&&claveMeta(mp)===claveMeta(meta)?' · meta principal':'')}))))}
   else if(!meta)out.push(h('div',{class:'race-mini'},h('div',{class:'race-i'},h('b',{text:'Sin carreras próximas'}),h('div',{class:'small mut',text:'Una meta le da dirección a tus semanas.'})),h('button',{class:'chip',onclick:function(){tab='prog';render();window.scrollTo(0,0)}},'Agregar meta')))
   out.push(vistaSemana(sem));
   if(msg)out.push(h('div',{class:'note',text:msg}));
@@ -311,11 +238,13 @@ function marcar(fecha,estado,motivo){
 }
 function selectorSemana(){
   var pl=planSel(), box=h('div',{style:'display:flex;flex-direction:column;gap:10px'});
+  var perm=permitidas(), mpS=metaPrincipal();
   box.appendChild(h('div',{class:'small mut',text:'¿Qué entrenas en la semana que vas a generar?'}));
   box.appendChild(h('div',{class:'row'},discList().map(function(x){return h('button',{class:'chip','aria-pressed':String(pl.disc.indexOf(x[0])>=0),onclick:function(){var d=toggle(pl.disc,x[0]);if(!d.length)return;guardarPerfil({plan:Object.assign({},pl,{disc:d})});render()}},x[1])})));
   box.appendChild(h('div',{class:'row'},[['auto','Días automáticos'],['manual','Elegir los días']].map(function(m){return h('button',{class:'chip','aria-pressed':String(pl.modo===m[0]),onclick:function(){guardarPerfil({plan:Object.assign({},pl,{modo:m[0]})});render()}},m[1])})));
   if(pl.modo==='manual')discList().filter(function(x){return pl.disc.indexOf(x[0])>=0}).forEach(function(x){
     box.appendChild(grupo('Días de '+x[1].toLowerCase(),'',pl.dias[x[0]]||[],function(d){var dd=Object.assign({},pl.dias);dd[x[0]]=toggle(dd[x[0]]||[],d);guardarPerfil({plan:Object.assign({},pl,{dias:dd})});render()}))});
+  if(perm){box.appendChild(h('p',{class:'small mut',text:'Tu meta principal ('+mpS.nombre+') usa: '+discList().map(function(d){return d[1]}).join(', ')+'. Las demás disciplinas están bloqueadas hasta que la termines.'}));return box}
   var ext=perfil().extras||[], nx=h('input',{type:'text',id:'dx',maxlength:'30',placeholder:'Otra disciplina (ej. yoga, remo)'});
   function agregarDisc(){var v=nx.value.trim();if(!v||ext.length>=6||ext.some(function(e){return e.toLowerCase()===v.toLowerCase()})||DISC.some(function(d){return d[1].toLowerCase()===v.toLowerCase()}))return;nx.value='';drafts.dx='';guardarPerfil({extras:ext.concat([v]),plan:Object.assign({},pl,{disc:pl.disc.concat(['x:'+v])})});render()}
   nx.addEventListener('keydown',function(ev){if(ev.key==='Enter'){ev.preventDefault();agregarDisc()}});
@@ -557,89 +486,117 @@ function vistaPerfil(){
   return out;
 }
 var SEMAFORO={verde:['ok','Seguro'],amarillo:['warn','Precaución'],rojo:['bad','Riesgoso']};
-function ordenar(l){return l.slice().sort(function(a,b){return a.fecha<b.fecha?-1:1})}
-/* Si la nueva meta es A, la A anterior pasa a B: solo una meta principal a la vez. */
-function conPrincipal(lista,m){return prioDe(m)!=='A'?lista:lista.map(function(x){return x!==m&&prioDe(x)==='A'?Object.assign({},x,{prio:'B'}):x})}
+var ROL={principal:['acc','Principal'],secundaria:['','Secundaria'],pausa:['warn','En pausa'],lograda:['ok','Lograda'],pasada:['','Ya pasó']};
 function tarjetaMetas(p){
-  var hoy=iso(new Date()), metas=ordenar(p.metas||[]), avisos=revisarMetas(metas), c=h('div',{class:'card'},h('h2',{text:'Metas y carreras'}));
+  var hoy=hoyS(), metas=MT.ordenar(p.metas||[]), avisos=revisarMetas(metas), mp=MT.principal(metas,hoy);
+  var c=h('div',{class:'card'},h('h2',{text:'Metas'}));
+  function guardarMetas(l,extra){guardarPerfil(Object.assign({metas:l},extra||{}));render()}
+  function cambiar(m,patch){return metas.map(function(x){if(MT.clave(x)!==MT.clave(m))return x;var y=Object.assign({},x,patch);Object.keys(y).forEach(function(k){if(y[k]==null)delete y[k]});return y})}
+  /* Lograda: libera la siguiente meta y, si fue más larga que tu experiencia, la actualiza. */
+  function logro(m){var ex=Object.assign({},p.exp), d=MT.distDe(m);if(d&&MT.esfuerzo(m)>MT.nivelExp(ex))ex.max=d;guardarMetas(cambiar(m,{lograda:hoy}),{exp:ex})}
   if(!(p.exp||{}).max)c.appendChild(h('div',{class:'note',text:'Dime abajo, en Mi experiencia, tu carrera más larga. Mientras tanto reviso tus metas como si fuera tu primera vez en cada distancia.'}));
-  if(!metas.length)c.appendChild(h('p',{class:'mut small',text:'Sin metas.'}));
+  if(!metas.length)c.appendChild(h('p',{class:'mut small',text:'Sin metas. La primera que agregues será tu meta principal.'}));
+  else if(!mp&&metas.some(function(m){return MT.activa(m,hoy)}))c.appendChild(h('div',{class:'note',text:'No tienes meta principal activa. Elige una con "Hacer principal" para que tu semana se arme hacia ella.'}));
   metas.forEach(function(m){
-    var pasada=m.fecha<hoy, niv=nivelDe(avisos,m), sf=SEMAFORO[niv], pr=prioDe(m), d=distDe(m);
-    var fila=h('div',{class:'meta'+(pasada?' pasada':'')},
-      h('div',{class:'row sp'},h('div',null,h('b',{text:m.nombre}),h('div',{class:'small mut',text:fmt(m.fecha)+(d!=='otra'?' · '+DIST[d].t:'')+(pasada?' · ya pasó':' · faltan '+semanasHasta(m.fecha,hoy)+' semanas')})),
-        h('div',{class:'row'},h('span',{class:'pill'+(pr==='A'?' acc':''),text:pr==='A'?'Principal':'Prioridad '+pr}),pasada||d==='otra'?null:h('span',{class:'pill '+sf[0],text:sf[1]}))));
-    avisos.filter(function(x){return x.clave===claveMeta(m)}).forEach(function(x){fila.appendChild(h('p',{class:'small aviso '+(x.nivel==='rojo'?'bad':'warn'),text:x.texto}))});
-    fila.appendChild(h('div',{class:'row'},
-      !pasada&&pr!=='A'?h('button',{class:'link',onclick:function(){guardarPerfil({metas:conPrincipal(metas.map(function(x){return x===m?Object.assign({},x,{prio:'A'}):x}),m)});render()}},'Hacer principal'):null,
-      h('button',{class:'link','aria-label':'Quitar '+m.nombre,onclick:function(){guardarPerfil({metas:metas.filter(function(x){return x!==m})});render()}},'Quitar')));
+    var r=MT.rol(m,metas,hoy), k=MT.clave(m), rr=ROL[r], act=r==='principal'||r==='secundaria'||r==='pausa', sf=SEMAFORO[nivelDe(avisos,m)];
+    var sub=fmt(m.fecha)+' · '+MT.descripcion(m)+(act?' · faltan '+MT.semanasEntre(hoy,m.fecha)+' semanas':m.lograda?' · lograda el '+fmt(m.lograda):'');
+    var fila=h('div',{class:'meta'+(act?'':' pasada')+(r==='principal'?' es-principal':'')},
+      h('div',{class:'row sp'},h('div',null,h('b',{text:m.nombre}),h('div',{class:'small mut',text:sub})),
+        h('div',{class:'row'},h('span',{class:'pill'+(rr[0]?' '+rr[0]:''),text:rr[1]}),(r==='principal'||r==='secundaria')&&MT.esfuerzo(m)?h('span',{class:'pill '+sf[0],text:sf[1]}):null)));
+    if(r==='pausa')fila.appendChild(h('p',{class:'small aviso warn',text:'Es de mayor esfuerzo que tu meta principal ('+mp.nombre+'). No se entrena todavía: se activa cuando pase su fecha o la marques como lograda.'}));
+    if(r==='principal'||r==='secundaria')avisos.filter(function(x){return x.clave===k}).forEach(function(x){fila.appendChild(h('p',{class:'small aviso '+(x.nivel==='rojo'?'bad':'warn'),text:x.texto}))});
+    var acc=[];
+    if(!m.lograda&&m.fecha<=hoy)acc.push(h('button',{class:'link',onclick:function(){logro(m)}},'La logré'));
+    if(m.lograda)acc.push(h('button',{class:'link',onclick:function(){guardarMetas(cambiar(m,{lograda:null}))}},'Desmarcar lograda'));
+    if(act&&r!=='principal'&&!mp)acc.push(h('button',{class:'link',onclick:function(){var v=MT.puedeSerPrincipal(m,metas,hoy);if(!v.ok){msgMeta=v.razon;render();return}guardarMetas(cambiar(m,{prio:'A'}))}},'Hacer principal'));
+    acc.push(h('button',{class:'link','aria-label':'Quitar '+m.nombre,onclick:function(){if(r==='principal'){quitarMeta=k;render();return}guardarMetas(metas.filter(function(x){return MT.clave(x)!==k}))}},'Quitar'));
+    fila.appendChild(h('div',{class:'row'},acc));
+    if(quitarMeta===k)fila.appendChild(h('div',{class:'alert',role:'alert'},h('b',{text:'¿Quitar tu meta principal? '}),'Se borra su plan y podrás elegir otra.',
+      h('div',{class:'row',style:'margin-top:10px'},h('button',{class:'danger',onclick:function(){quitarMeta=null;guardarMetas(metas.filter(function(x){return MT.clave(x)!==k}))}},'Sí, quitarla'),h('button',{onclick:function(){quitarMeta=null;render()}},'Cancelar'))));
     c.appendChild(fila);
   });
   /* formulario */
-  var nom=h('input',{type:'text',id:'mn',maxlength:'60',placeholder:'Ej. Medio Maratón Monterrey'}),fec=h('input',{type:'date',id:'mf',min:hoy});
+  var tipo=nuevaMeta.tipo, nm=MT.esfuerzo, lim=mp?MT.esfuerzo(mp):99;
+  var nom=h('input',{type:'text',id:'mn',maxlength:'60',placeholder:tipo==='montana'?'Ej. Trail Chipinque':tipo==='triatlon'?'Ej. Ironman 70.3 Monterrey':'Ej. Medio Maratón Monterrey'}),fec=h('input',{type:'date',id:'mf',min:hoy});
   c.appendChild(h('h3',{text:'Nueva meta'}));
-  c.appendChild(h('div',null,h('div',{class:'small mut',style:'margin-bottom:6px',text:'Distancia'}),h('div',{class:'row'},Object.keys(DIST).map(function(k){return h('button',{class:'chip','aria-pressed':String(nuevaMeta.dist===k),onclick:function(){nuevaMeta.dist=k;render()}},DIST[k].t)}))));
+  c.appendChild(h('p',{class:'small mut',text:mp?'Será secundaria dentro del plan de '+mp.nombre+'. Con ella activa solo puedes agregar metas de esfuerzo igual o menor ('+MT.descripcion(mp)+' o menos).':'Será tu meta principal: tu semana se arma pensando en ella.'}));
+  c.appendChild(h('div',null,h('div',{class:'small mut',style:'margin-bottom:6px',text:'Tipo'}),h('div',{class:'row'},Object.keys(MT.TIPOS).map(function(k){return h('button',{class:'chip','aria-pressed':String(tipo===k),onclick:function(){nuevaMeta={tipo:k,dist:k==='calle'?'21k':k==='triatlon'?'703':null};bloqueo='';msgMeta='';render()}},MT.TIPOS[k].t)}))));
+  var mk,md;
+  if(tipo==='montana'){
+    mk=h('input',{type:'number',id:'mk',min:'1',max:'300',step:'0.5',inputmode:'decimal',placeholder:'Ej. 21'});
+    md=h('input',{type:'number',id:'md',min:'0',max:'15000',step:'50',inputmode:'numeric',placeholder:'Ej. 1200'});
+    c.appendChild(h('div',{class:'row dos'},h('label',{for:'mk'},'Distancia (km)',mk),h('label',{for:'md'},'Desnivel de subida (m)',md)));
+    c.appendChild(h('p',{class:'small mut',text:'El esfuerzo se calcula como km + desnivel/100. Ej.: 21 km con 1,200 m = 33, parecido a un medio maratón.'}));
+  } else c.appendChild(h('div',null,h('div',{class:'small mut',style:'margin-bottom:6px',text:'Distancia'}),h('div',{class:'row'},Object.keys(MT.DIST).filter(function(d){return MT.DIST[d].tipo===tipo}).map(function(d){
+    var mayor=MT.DIST[d].n>lim;
+    return h('button',{class:'chip'+(mayor?' bloq':''),'aria-pressed':String(nuevaMeta.dist===d),title:mayor?'Mayor esfuerzo que tu meta principal':'',onclick:function(){nuevaMeta.dist=d;bloqueo='';render()}},MT.DIST[d].t+(mayor?' · bloqueada':''))}))));
   c.appendChild(h('label',{for:'mn'},'Nombre (opcional)',nom));
   c.appendChild(h('label',{for:'mf'},'Fecha',fec));
-  c.appendChild(h('div',null,h('div',{class:'small mut',style:'margin-bottom:6px',text:'Prioridad'}),h('div',{class:'row'},[['A','A · Principal'],['B','B · Apoyo'],['C','C · Por gusto']].map(function(x){return h('button',{class:'chip','aria-pressed':String(nuevaMeta.prio===x[0]),onclick:function(){nuevaMeta.prio=x[0];render()}},x[1])})),
-    h('p',{class:'small mut',style:'margin-top:6px',text:'Solo puede haber una principal. Tu semana se arma pensando en ella.'})));
-  function limpiar(){nom.value='';fec.value='';drafts.mn='';drafts.mf='';revisar=null}
-  function guardarMeta(lista){guardarPerfil({metas:lista});limpiar();render()}
+  function limpiar(){nom.value='';fec.value='';['mn','mf','mk','md'].forEach(function(i){delete drafts[i]});revisar=null;bloqueo=''}
+  function guardarMeta(lista,texto){guardarPerfil({metas:lista});limpiar();msgMeta=texto||'';render()}
+  if(bloqueo)c.appendChild(h('div',{class:'alert',role:'alert'},h('b',{text:'No puedes agregar esta meta todavía. '}),bloqueo));
   if(revisar){
     var rojo=revisar.avisos.some(function(x){return x.nivel==='rojo'});
     c.appendChild(h('div',{class:rojo?'alert':'note',role:'alert'},
       h('b',{text:rojo?'Esta meta pone en riesgo tu salud.':'Revisa esto antes de agregarla.'}),
       h('ul',{class:'avisos'},revisar.avisos.map(function(x){var otra=x.clave!==revisar.clave;return h('li',null,otra?h('b',{text:x.clave.split('|').slice(1).join('|')+': '}):null,x.texto)})),
-      h('div',{class:'row'},h('button',{onclick:function(){revisar=null;render()}},'Cambiar la meta'),h('button',{class:rojo?'danger':'',onclick:function(){guardarMeta(revisar.lista)}},'Agregar de todos modos'))));
+      h('div',{class:'row'},h('button',{onclick:function(){revisar=null;render()}},'Cambiar la meta'),h('button',{class:rojo?'danger':'',onclick:function(){guardarMeta(revisar.lista,revisar.ok)}},'Agregar de todos modos'))));
   } else c.appendChild(h('button',{class:'p',onclick:function(){
-    if(!fec.value){msgMeta='Elige la fecha de la carrera.';render();return}
-    if(fec.value<hoy){msgMeta='La fecha ya pasó.';render();return}
-    msgMeta='';
-    var m={nombre:nom.value.trim()||DIST[nuevaMeta.dist].t,fecha:fec.value,dist:nuevaMeta.dist,prio:nuevaMeta.prio};
-    var lista=conPrincipal(ordenar(metas.concat([m])),m);
-    /* solo los avisos que aparecen por agregar esta meta (incluye los que provoca en otras metas) */
+    var m={nombre:nom.value.trim(),fecha:fec.value,tipo:tipo};
+    if(tipo==='montana'){m.km=Math.round(parseFloat(mk.value)*2)/2;m.desnivel=Math.round(parseFloat(md.value)||0);if(!m.nombre)m.nombre='Montaña '+(m.km||'')+' km'}
+    else{m.dist=nuevaMeta.dist;if(!m.nombre)m.nombre=MT.DIST[m.dist].t}
+    var v=MT.validar(m,metas,hoy);
+    if(!v.ok){if(v.codigo==='mayor'){bloqueo=v.razon;msgMeta=''}else{msgMeta=v.razon;bloqueo=''}render();return}
+    bloqueo='';msgMeta='';m.prio=v.rol==='principal'?'A':'B';
+    var lista=MT.ordenar(metas.concat([m])), ok=v.rol==='principal'?'Meta principal agregada. Tu plan ya apunta a ella.':'Meta secundaria agregada dentro de tu plan.';
+    /* solo los avisos de riesgo que aparecen por agregar esta meta */
     var antes=avisos.map(function(x){return x.clave+x.texto});
     var mios=revisarMetas(lista).filter(function(x){return antes.indexOf(x.clave+x.texto)<0});
-    if(mios.length){revisar={lista:lista,avisos:mios,clave:claveMeta(m)};render();return}
-    guardarMeta(lista);msgMeta='Meta agregada. Tu plan se ve seguro.';render();
+    if(mios.length){revisar={lista:lista,avisos:mios,clave:MT.clave(m),ok:ok};render();return}
+    guardarMeta(lista,ok);
   }},'Agregar meta'));
   if(msgMeta)c.appendChild(h('p',{class:'small mut',role:'status',text:msgMeta}));
-  c.appendChild(h('p',{class:'small mut',text:'La revisión usa guías generales de entrenamiento. No sustituye a un médico.'}));
+  c.appendChild(h('p',{class:'small mut',text:'Las reglas usan guías generales de entrenamiento. No sustituyen a un médico.'}));
   return c;
 }
 function tarjetaExperiencia(p){
   var ex=(p.exp||{}).max||'';
-  return h('div',{class:'card'},h('h2',{text:'Mi experiencia corriendo'}),
-    h('p',{class:'small mut',text:'¿Cuál es la carrera más larga que has terminado? Con esto reviso si tus metas son seguras.'}),
-    h('div',{class:'row'},EXP.map(function(e){return h('button',{class:'chip','aria-pressed':String(ex===e[0]),onclick:function(){guardarPerfil({exp:Object.assign({},p.exp,{max:e[0]})});render()}},e[1])})),
+  return h('div',{class:'card'},h('h2',{text:'Mi experiencia'}),
+    h('p',{class:'small mut',text:'¿Cuál es la prueba más larga que has terminado? Con esto reviso si tus metas son seguras. Se actualiza sola cuando marcas una meta como lograda.'}),
+    h('div',{class:'row'},MT.EXP.map(function(e){return h('button',{class:'chip','aria-pressed':String(ex===e[0]),onclick:function(){guardarPerfil({exp:Object.assign({},p.exp,{max:e[0]})});render()}},e[1])})),
     (function(){var i=h('input',{type:'number',id:'lr',min:'0',max:'50',step:'0.5',inputmode:'decimal',placeholder:'Ej. 8',value:(p.exp||{}).larga||''});
       i.addEventListener('change',function(){var v=parseFloat(i.value);var e=Object.assign({},p.exp);if(!(v>0))delete e.larga;else e.larga=Math.min(50,Math.round(v*2)/2);guardarPerfil({exp:e});render()});
       return h('label',{for:'lr'},'Tu salida más larga del último mes (km)',i,h('span',{class:'small mut',style:'font-weight:400',text:'Con esto tu plan empieza en tu nivel real. Si lo dejas vacío, uso un valor seguro según tu experiencia.'}))})());
 }
+function objetivos(w){var o=[];if(w.km&&!w.carrera)o.push(w.km+' km');if(w.desnivel)o.push(w.desnivel+' m subida');if(w.bici)o.push(w.bici+' h bici');return o.join(' · ')}
 function tarjetaPlan(){
-  var m=metaPrincipal(), c=h('div',{class:'card'},h('h2',{text:'Mi plan'}));
+  var hoy=hoyS(), m=metaPrincipal(), rec=MT.recuperacion(metasP(),hoy), c=h('div',{class:'card'},h('h2',{text:'Mi plan'}));
+  if(rec)c.appendChild(h('div',{class:'plan-hero'},h('div',{class:'kicker',text:'Después de '+rec.meta.nombre}),h('div',{class:'plan-sem',text:'Recuperación'}),
+    h('div',{class:'row'},h('span',{class:'pill ok',text:'Semana '+rec.k+' de '+rec.R})),h('p',{class:'small',text:FASES.recuperacion.f})));
   var pl=m&&planDe(m);
-  if(!pl){c.appendChild(h('p',{class:'mut small',text:m?'Tu meta principal no tiene una distancia de 5K a maratón, así que no puedo armar fases. Elige su distancia abajo.':'Agrega una meta principal (prioridad A) y armo tu plan por fases hasta el día de la carrera.'}));return c}
-  var hoyIso=iso(new Date()), s=semanaPlan(pl,hoyIso);
+  if(!pl){c.appendChild(h('p',{class:'mut small',text:rec?'Cuando estés listo, agrega tu siguiente meta: será la principal y armo su plan.':m?'Tu meta principal no tiene un tipo y distancia reconocibles, así que no puedo armar fases.':'Agrega una meta y será tu meta principal: armo tu plan por fases (base, desarrollo, afinación y recuperación) hasta la fecha.'}));return c}
+  var s=semanaPlan(pl,hoy);
   if(!s){c.appendChild(h('p',{class:'mut small',text:'Tu meta principal ya pasó.'}));return c}
-  var f=FASES[s.fase];
+  var f=s.pre?FASES.pre:FASES[s.fase], obj=s.carrera?'':objetivos(s);
   c.appendChild(h('div',{class:'plan-hero'},
     h('div',{class:'kicker',text:'Hacia '+m.nombre+' · '+fmt(m.fecha)}),
     h('div',{class:'plan-sem'},s.pre?h('span',{text:'Empieza en '+s.faltan+(s.faltan===1?' semana':' semanas')}):[h('span',{text:'Semana '+s.k}),h('span',{class:'mut',text:' de '+pl.L})]),
-    h('div',{class:'row'},h('span',{class:'pill acc',text:f.t}),s.desc?h('span',{class:'pill',text:'Descarga'}):null),
-    h('p',{class:'small',text:s.desc?DESCARGA:f.f}),
-    s.fase==='carrera'?null:h('div',{class:'plan-km'},h('span',{class:'num',text:String(s.km)}),h('span',{class:'small mut',text:' km · salida larga '+(s.pre?'máxima por ahora':'de esta semana')}))));
-  /* línea de tiempo: el tono sube con la carga de cada fase */
-  var orden=['base','cons','pico','taper','carrera'], tl=h('div',{class:'fases',role:'img','aria-label':'Fases del plan: '+orden.filter(function(x){return pl.fases[x]}).map(function(x){return FASES[x].t+' '+pl.fases[x]+' semanas'}).join(', ')});
-  orden.forEach(function(x){if(pl.fases[x])tl.appendChild(h('div',{class:'fs f-'+x,style:'flex:'+pl.fases[x]}))});
+    h('div',{class:'row'},h('span',{class:'pill acc',text:f.t}),s.desc?h('span',{class:'pill',text:'Descarga'}):null,s.carrera?h('span',{class:'pill acc',text:'Semana de la meta'}):null),
+    h('p',{class:'small',text:s.carrera?MT.CARRERA:s.desc?MT.DESCARGA:f.f}),
+    h('p',{class:'small mut',text:'Disciplinas: '+MT.TIPOS[pl.tipo].enfoque}),
+    obj?h('div',{class:'plan-km'},h('span',{class:'num',text:obj}),h('span',{class:'small mut',text:' · sesiones largas '+(s.pre?'máximas por ahora':'de esta semana')})):null));
+  /* línea de tiempo: el tono sigue la carga de cada fase */
+  var orden=['base','desarrollo','afinacion'], tl=h('div',{class:'fases',role:'img','aria-label':'Fases del plan: '+orden.map(function(x){return FASES[x].t+' '+pl.fases[x]+' semanas'}).join(', ')+', y después recuperación'});
+  orden.forEach(function(x){tl.appendChild(h('div',{class:'fs f-'+x,style:'flex:'+pl.fases[x]}))});
   if(!s.pre)tl.appendChild(h('div',{class:'fs-hoy',style:'left:'+((s.k-.5)/pl.L*100)+'%'}));
   c.appendChild(tl);
-  c.appendChild(h('div',{class:'leyenda small mut'},orden.filter(function(x){return pl.fases[x]}).map(function(x){return h('span',{class:'f-'+x},h('i'),FASES[x].t+' · '+pl.fases[x])})));
+  c.appendChild(h('div',{class:'leyenda small mut'},orden.map(function(x){return h('span',{class:'f-'+x},h('i'),FASES[x].t+' · '+pl.fases[x])}),h('span',{class:'f-recuperacion'},h('i'),'Recuperación después')));
   if(pl.max<pl.top-.5)c.appendChild(h('div',{class:'note',text:'Con el tiempo que hay, tu salida larga llegará a '+pl.max+' km (lo ideal serían '+pl.top+'). Subirla más rápido aumenta el riesgo de lesión.'}));
+  var lunesHoy=iso(monday(new Date()));
   var lista=h('div',{class:'plan-lista'},pl.sem.map(function(w){var esta=!s.pre&&w.k===s.k;
-    return h('div',{class:'pl-row'+(esta?' hoy':'')+(w.lunes<iso(monday(new Date()))?' pasada':'')},h('span',{class:'pl-k',text:'S'+w.k}),h('span',{class:'pl-f'},h('span',{text:FASES[w.fase].t+(w.desc?' · descarga':'')}),h('span',{class:'small mut',text:fmt(w.lunes)})),h('span',{class:'pl-km',text:w.fase==='carrera'?'Carrera':w.km+' km'}))}));
+    return h('div',{class:'pl-row'+(esta?' hoy':'')+(w.lunes<lunesHoy?' pasada':'')},h('span',{class:'pl-k',text:'S'+w.k}),h('span',{class:'pl-f'},h('span',{text:FASES[w.fase].t+(w.desc?' · descarga':'')+(w.carrera?' · meta':'')}),h('span',{class:'small mut',text:fmt(w.lunes)})),h('span',{class:'pl-km',text:w.carrera?'Meta':objetivos(w)}))}));
   c.appendChild(h('details',{class:'plan-det'},h('summary',null,h('span',{class:'t',text:'Ver las '+pl.L+' semanas'})),lista));
-  c.appendChild(h('p',{class:'small mut',text:'El coach usa la fase y la salida larga de cada semana al generarla.'}));
+  c.appendChild(h('p',{class:'small mut',text:'El coach usa la fase y los objetivos de cada semana al generarla.'}));
   return c;
 }
 function tarjetaConexiones(){
@@ -680,7 +637,7 @@ function subs(){
 }
 
 
-function reset(){S={perfil:{},semanas:{},pesos:{},molestias:{}};chat=[];drafts={};msg='';tab='hoy';busy=false;razon=false;lastTriage=null;draftMood=null;revisar=null;msgMeta='';nuevaMeta={dist:'21k',prio:'A'}}
+function reset(){S={perfil:{},semanas:{},pesos:{},molestias:{}};chat=[];drafts={};msg='';tab='hoy';busy=false;razon=false;lastTriage=null;draftMood=null;revisar=null;msgMeta='';bloqueo='';quitarMeta=null;nuevaMeta={tipo:'calle',dist:'21k'}}
 window.EntrenadorApp={
   start:function(b){reset();db=b.db;sample=b.sample;descargas=b.descargas;gymSearch=b.gymSearch||null;acct=b.account||null;estadoDb('Conectando');render();subs()},
   stop:function(){reset();db=null;sample=null;descargas=null;acct=null;var v=document.getElementById('view');v.replaceChildren();var n=document.getElementById('nav');n.replaceChildren()},
