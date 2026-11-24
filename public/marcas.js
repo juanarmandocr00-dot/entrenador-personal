@@ -161,8 +161,29 @@ function expConMarcas(exp,marcas,hoy){
   return e;
 }
 
+/* ---------- resultados (marcas de tipo carrera) ----------
+   Una meta lograda deja su resultado como marca de carrera ligada a la meta (metaId). */
+var KM_DIST={'5k':5,'10k':10,'21k':21.1,'42k':42.2};
+function marcaDeMeta(meta,res){
+  res=res||{}; var m={id:nuevoId(),fecha:res.fecha,tipo:'carrera',metaId:meta.fecha+'|'+meta.nombre,nota:String(meta.nombre||'').slice(0,200)}, disc='correr';
+  if(+res.seg>0)m.seg=Math.round(+res.seg); if(+res.sent>=1&&+res.sent<=5)m.sent=Math.round(+res.sent);
+  if(meta.tipo==='triatlon'||meta.dist==='703'||meta.dist==='ironman'){disc='x:Triatlón';m.dato='tiempo';delete m.tipo}
+  else if(meta.tipo==='montana'){m.dist='otra';m.km=+meta.km||0;if(+meta.desnivel)m.desnivel=Math.round(+meta.desnivel)}
+  else if(meta.dist==='42k'){m.dist='otra';m.km=42.2}
+  else m.dist=meta.dist;
+  return {disc:disc,marca:m};
+}
+function kmMarca(m){return m.dist==='otra'?+m.km||0:KM_DIST[m.dist]||0}
+/* Todos los resultados, más reciente primero: [{disc, marca}] */
+function resultados(marcas){
+  var out=[];Object.keys(marcas||{}).forEach(function(d){(marcas[d]||[]).forEach(function(m){if(m.tipo==='carrera'||m.metaId)out.push({disc:d,marca:m})})});
+  return out.sort(function(a,b){return porFecha(a.marca,b.marca)});
+}
+/* Quita las marcas ligadas a una meta (al desmarcarla como lograda). */
+function sinMeta(marcas,k){var o={};Object.keys(marcas||{}).forEach(function(d){var l=(marcas[d]||[]).filter(function(m){return m.metaId!==k});if(l.length)o[d]=l});return o}
+
 var API={BASE:BASE,DIST_CORRER:DIST_CORRER,TIPO_CORRER:TIPO_CORRER,DATOS:DATOS,NIVELES:NIVELES,MAX:MAX,MAX_ARCHIVO:MAX_ARCHIVO,
   aSeg:aSeg,deSeg:deSeg,epley:epley,esPropia:esPropia,nombreDisc:nombreDisc,limpiar:limpiar,agregar:agregar,archivar:archivar,
-  textoMarca:textoMarca,textoFicha:textoFicha,resumen:resumen,expConMarcas:expConMarcas};
+  textoMarca:textoMarca,marcaDeMeta:marcaDeMeta,kmMarca:kmMarca,resultados:resultados,sinMeta:sinMeta,KM_DIST:KM_DIST,textoFicha:textoFicha,resumen:resumen,expConMarcas:expConMarcas};
 if(typeof module!=='undefined'&&module.exports)module.exports=API; else root.Marcas=API;
 })(typeof window!=='undefined'?window:this);

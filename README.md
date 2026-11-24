@@ -14,7 +14,10 @@ App personal de entrenamiento con IA. Una sola persona la usa, con login, verifi
 | `supabase/functions/coach/` | Función del servidor que llama a Claude. La llave de Anthropic vive solo ahí. |
 | `public/metas.js` | Reglas de metas: tipos, esfuerzo, disciplinas permitidas, bloqueo de metas mayores, semáforo de riesgo y plan por fases. |
 | `public/marcas.js` | Marcas y experiencia por disciplina: validación, máximo estimado (Epley), archivo de marcas viejas y resumen de una línea para el coach. |
-| `tests/` | Pruebas de metas y marcas. Se corren con `node --test` (Node 18 o más nuevo). |
+| `public/edicion.js` | Edición protegida (Editar → Guardar / Cancelar, una tarjeta a la vez) y reglas de los registros de peso. |
+| `public/semanas.js` | Configuración semanal (días, minutos, disciplinas) guardada en `semanas/AAAA-MM-DD`, campo `config`. |
+| `public/recuperacion.js` | Recuperación automática después de una carrera o meta lograda. |
+| `tests/` | Pruebas de metas, marcas, edición, semanas y recuperación. Se corren con `node --test` (Node 18 o más nuevo). |
 
 ## Cómo está protegido
 
@@ -68,6 +71,19 @@ Límite que conviene conocer: `supabase-js` guarda la sesión en `localStorage`,
 - **Bloqueo:** con una principal activa no se puede agregar ni cambiar a una meta de mayor esfuerzo. Se habilita cuando pasa su fecha o la marcas como lograda.
 - **Disciplinas según la meta:** calle y montaña → correr y gym; triatlón → natación, bici, correr y gym. Las demás quedan bloqueadas, también en lo que devuelve el coach.
 - **Fases:** base, desarrollo, afinación (hasta la fecha) y recuperación (después).
+
+## Perfil por semana y edición protegida
+
+- Semanal (en el documento de cada semana, campo `config`): días libres, días sin entrenar, día de sobreesfuerzo, minutos por día y disciplinas con sus días. Permanente (en el perfil): gimnasio, porqué, metas, experiencia, marcas y datos básicos.
+- Cada semana usa su configuración; si no tiene, la de la semana anterior más cercana; si no hay ninguna, la que estaba en el perfil. El coach recibe la de la semana que genera.
+- Todo se ve en modo lectura. Solo cambia con Editar → Guardar; Cancelar descarta. Una tarjeta a la vez: si hay cambios sin guardar, pregunta.
+
+## Recuperación después de una carrera
+
+- Se activa con una meta lograda, una marca de tipo carrera, o al confirmar en Hoy una meta con fecha pasada.
+- Larga para ti: más que tu carrera más larga anterior, 21 km o más, o esfuerzo 5 de 5. Normal: el resto.
+- Siempre: el día siguiente no se corre. Larga: 1 día de descanso completo (2 desde medio maratón) y la semana siguiente 35% menos. Normal: 20% menos. La semana después sube a la mitad de la reducción. Conservador / Normal / Exigente (en Mi experiencia) ajusta esos números.
+- Se aplica localmente a los días que regresa el coach; el coach solo recibe una línea. Dentro de un plan, la semana de recuperación se inserta y el plan retoma la fase donde iba.
 
 ## Marcas y experiencia
 

@@ -102,3 +102,32 @@ test('el semáforo marca riesgoso un primer maratón a 8 semanas de un medio', (
   const av = M.revisar(metas, { max: '10k' }, HOY);
   assert.ok(av.some((a) => a.nivel === 'rojo' && /12 semanas/.test(a.texto)));
 });
+
+test('editar una meta: cambia nombre y fecha con las mismas reglas', () => {
+  const diezK = { nombre: '10K Navidad', tipo: 'calle', dist: '10k', fecha: '2027-01-10', prio: 'B' };
+  const metas = [medio, diezK];
+  const ok = M.validarEdicion(diezK, Object.assign({}, diezK, { nombre: '10K Reyes', fecha: '2027-01-06' }), metas, HOY);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.prio, 'B');
+  const mayor = M.validarEdicion(diezK, Object.assign({}, diezK, { dist: '42k' }), metas, HOY);
+  assert.equal(mayor.codigo, 'mayor');
+  // la principal puede cambiar de distancia y sigue siendo principal
+  const p = M.validarEdicion(medio, Object.assign({}, medio, { dist: '42k' }), metas, HOY);
+  assert.equal(p.prio, 'A');
+});
+
+test('marcar una meta como lograda guarda el resultado y aparece en resultados', () => {
+  const MR = require('../public/marcas.js');
+  const diezK = { nombre: '10K Navidad', tipo: 'calle', dist: '10k', fecha: '2026-11-22', prio: 'B' };
+  const r = M.lograr([medio, diezK], M.clave(diezK), { fecha: '2026-11-22', seg: 3480, sent: 4 }, HOY);
+  assert.equal(r.ok, true);
+  const hecha = r.metas.find((m) => m.nombre === '10K Navidad');
+  assert.deepEqual([hecha.lograda, hecha.resultado.seg, hecha.resultado.sent], ['2026-11-22', 3480, 4]);
+  const { disc, marca } = MR.marcaDeMeta(hecha, { fecha: hecha.lograda, seg: 3480, sent: 4 });
+  const res = MR.resultados({ [disc]: [marca] });
+  assert.equal(res.length, 1);
+  assert.equal(res[0].marca.metaId, M.clave(diezK));
+  assert.match(MR.textoMarca(disc, res[0].marca), /10K en 58:00.*carrera/);
+  assert.equal(M.lograr([diezK], M.clave(diezK), { fecha: '2026-12-01' }, HOY).ok, false); // fecha futura
+  assert.equal(M.desmarcar(r.metas, M.clave(diezK)).find((m) => m.nombre === '10K Navidad').lograda, undefined);
+});

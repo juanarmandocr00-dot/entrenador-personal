@@ -106,6 +106,30 @@ function puedeSerPrincipal(m,metas,hoy){
   return {ok:true};
 }
 
+/* Editar una meta: las mismas reglas que al agregarla, comparada contra las demás.
+   La principal sigue siendo principal; una secundaria no puede subir por encima de la principal. */
+function validarEdicion(orig,m,metas,hoy){
+  var otras=(metas||[]).filter(function(x){return clave(x)!==clave(orig)});
+  if(orig.lograda){
+    if(!m.fecha)return no('Elige la fecha de la meta.');
+    if(!tipoDe(m))return no('Elige el tipo y la distancia de la meta.');
+    if(otras.some(function(x){return clave(x)===clave(m)}))return no('Ya tienes esa meta.');
+    return {ok:true,rol:'lograda',prio:orig.prio||'B'};
+  }
+  var v=validar(m,otras,hoy); if(!v.ok)return v;
+  return {ok:true,rol:v.rol,prio:orig.prio==='A'&&v.rol==='principal'?'A':'B'};
+}
+/* Marcar como lograda con su resultado (tiempo y cómo te sentiste). */
+function lograr(metas,k,res,hoy){
+  res=res||{}; var f=res.fecha||hoy;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(f))return no('Revisa la fecha.');
+  if(hoy&&f>hoy)return no('La fecha no puede ser futura.');
+  if(!(metas||[]).some(function(x){return clave(x)===k}))return no('No encontré esa meta.');
+  var r={}; if(+res.seg>0)r.seg=Math.round(+res.seg); if(+res.sent>=1&&+res.sent<=5)r.sent=Math.round(+res.sent);
+  return {ok:true,metas:metas.map(function(x){if(clave(x)!==k)return x;var y=Object.assign({},x,{lograda:f});delete y.noHecha;if(Object.keys(r).length)y.resultado=r;else delete y.resultado;return y})};
+}
+function desmarcar(metas,k){return (metas||[]).map(function(x){if(clave(x)!==k)return x;var y=Object.assign({},x);delete y.lograda;delete y.resultado;return y})}
+
 /* ---------- revisión de riesgo (semáforo) ---------- */
 /* semanas desde hoy: [mínimo, recomendado]. Menos del mínimo = riesgoso; menos del recomendado = precaución. */
 var PREP={1:{nueva:[6,8],conocida:[3,4]},2:{nueva:[8,10],conocida:[4,6]},3:{nueva:[12,16],conocida:[6,10]},4:{nueva:[18,20],conocida:[10,16]},5:{nueva:[20,24],conocida:[12,16]},6:{nueva:[30,36],conocida:[20,24]}};
@@ -188,19 +212,23 @@ function recuperacion(metas,hoy){
   return null;
 }
 /* Texto para el coach sobre la fase de la semana que empieza en fecha. */
-function textoFase(metas,exp,hoy,fecha,ini){
+/* opts.linea: línea de recuperación ya calculada (reemplaza la genérica); opts.semana(pl,fecha): semana ajustada. */
+function textoFase(metas,exp,hoy,fecha,ini,opts){
+  opts=opts||{};
   var out=[], rec=recuperacion(metas,fecha<hoy?hoy:fecha);
-  if(rec)out.push('RECUPERACIÓN: semana '+rec.k+' de '+rec.R+' después de '+rec.meta.nombre+'. '+FASES.recuperacion.f);
+  if(opts.linea)out.push(opts.linea);
+  else if(rec)out.push('RECUPERACIÓN: semana '+rec.k+' de '+rec.R+' después de '+rec.meta.nombre+'. '+FASES.recuperacion.f);
   var p=principal(metas,hoy), pl=p&&plan(p,exp,ini);
   if(!pl){out.push(p?'PLAN: la meta principal no tiene un esfuerzo reconocible; arma semanas equilibradas.':'PLAN: sin meta principal; arma semanas equilibradas de mantenimiento.');return out.join('\n')}
-  var s=semanaPlan(pl,fecha,ini), m=p.nombre+' ('+descripcion(p)+', '+p.fecha+')', enf=TIPOS[pl.tipo].enfoque;
+  var s=opts.semana?opts.semana(pl,fecha):semanaPlan(pl,fecha,ini), m=p.nombre+' ('+descripcion(p)+', '+p.fecha+')', enf=TIPOS[pl.tipo].enfoque;
   if(!s){out.push('PLAN: la meta principal ya pasó.');return out.join('\n')}
   if(s.pre)out.push('PLAN: '+(s.faltan===1?'falta 1 semana':'faltan '+s.faltan+' semanas')+' para que empiece el plan de '+pl.L+' semanas hacia '+m+'. Fase: Base general. '+FASES.pre.f+' '+enf+' Salida larga de hasta '+s.km+' km.');
+  else if(s.recuperacion)out.push('PLAN: semana '+s.k+' de '+pl.L+' hacia '+m+'. Esta semana se inserta la recuperación; la próxima retoma la fase '+FASES[s.fase].t+' donde iba.');
   else{
     var extra=[];
     if(!s.carrera&&s.km)extra.push('salida larga objetivo '+s.km+' km'+(s.desnivel?' con unos '+s.desnivel+' m de subida':''));
     if(!s.carrera&&s.bici)extra.push('bici larga de '+s.bici+' h');
-    out.push('PLAN: semana '+s.k+' de '+pl.L+' hacia '+m+'. Fase: '+FASES[s.fase].t+'. '+(s.carrera?CARRERA:s.desc?DESCARGA:FASES[s.fase].f)+' '+enf+(extra.length?' Objetivos: '+extra.join('; ')+' (no los pases más de 10%).':''));
+    out.push('PLAN: semana '+s.k+' de '+pl.L+' hacia '+m+(s.retoma?' (retoma los objetivos de la semana '+s.retoma+' por la recuperación)':'')+'. Fase: '+FASES[s.fase].t+'. '+(s.carrera?CARRERA:s.desc?DESCARGA:FASES[s.fase].f)+' '+enf+(extra.length?' Objetivos: '+extra.join('; ')+' (no los pases más de 10%).':''));
   }
   return out.join('\n');
 }
@@ -209,7 +237,7 @@ var API={
   iso:iso,parse:parse,addDays:addDays,dias:dias,semanasEntre:semanasEntre,inicioSemana:inicioSemana,fmt:fmt,
   TIPOS:TIPOS,DIST:DIST,NIVEL:NIVEL,EXP:EXP,FASES:FASES,DESCARGA:DESCARGA,CARRERA:CARRERA,
   distDe:distDe,tipoDe:tipoDe,esfuerzo:esfuerzo,kmEsfuerzo:kmEsfuerzo,descripcion:descripcion,clave:clave,ordenar:ordenar,nivelExp:nivelExp,
-  activa:activa,principal:principal,enPausa:enPausa,rol:rol,disciplinas:disciplinas,validar:validar,puedeSerPrincipal:puedeSerPrincipal,
+  activa:activa,principal:principal,enPausa:enPausa,rol:rol,disciplinas:disciplinas,validar:validar,validarEdicion:validarEdicion,lograr:lograr,desmarcar:desmarcar,puedeSerPrincipal:puedeSerPrincipal,
   revisar:revisar,plan:plan,semanaPlan:semanaPlan,recuperacion:recuperacion,textoFase:textoFase
 };
 if(typeof module!=='undefined'&&module.exports)module.exports=API; else root.Metas=API;
