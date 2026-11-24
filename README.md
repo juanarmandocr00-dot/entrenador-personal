@@ -13,7 +13,8 @@ App personal de entrenamiento con IA. Una sola persona la usa, con login, verifi
 | `supabase/schema.sql` | Tablas, políticas RLS y verificación en dos pasos obligatoria. |
 | `supabase/functions/coach/` | Función del servidor que llama a Claude. La llave de Anthropic vive solo ahí. |
 | `public/metas.js` | Reglas de metas: tipos, esfuerzo, disciplinas permitidas, bloqueo de metas mayores, semáforo de riesgo y plan por fases. |
-| `tests/` | Pruebas de las reglas de metas. Se corren con `node --test` (Node 18 o más nuevo). |
+| `public/marcas.js` | Marcas y experiencia por disciplina: validación, máximo estimado (Epley), archivo de marcas viejas y resumen de una línea para el coach. |
+| `tests/` | Pruebas de metas y marcas. Se corren con `node --test` (Node 18 o más nuevo). |
 
 ## Cómo está protegido
 
@@ -67,6 +68,14 @@ Límite que conviene conocer: `supabase-js` guarda la sesión en `localStorage`,
 - **Bloqueo:** con una principal activa no se puede agregar ni cambiar a una meta de mayor esfuerzo. Se habilita cuando pasa su fecha o la marcas como lograda.
 - **Disciplinas según la meta:** calle y montaña → correr y gym; triatlón → natación, bici, correr y gym. Las demás quedan bloqueadas, también en lo que devuelve el coach.
 - **Fases:** base, desarrollo, afinación (hasta la fecha) y recuperación (después).
+
+## Marcas y experiencia
+
+- **Ficha por disciplina** (todo opcional): tiempo practicándola, veces por semana (ahora o antes), nivel que sientes y última vez.
+- **Marcas** con campos según la disciplina; una marca puede ser solo una nota. Gym calcula el máximo estimado con Epley (peso × (1 + reps/30)), solo con 10 repeticiones o menos.
+- Se guardan en el perfil: 30 por disciplina. Las más viejas pasan a `perfil/archivo` (hasta 200 por disciplina).
+- El coach no recibe la lista: solo una línea por disciplina que esté en la semana y permitida por la meta principal.
+- Las carreras registradas suben tu experiencia y la salida más larga del último mes llena ese dato si no lo escribiste; con eso se evalúan las metas y se arma el plan.
 
 Estas reglas viven en `public/metas.js` y se validan en la app, no solo en el prompt. Para probarlas:
 
